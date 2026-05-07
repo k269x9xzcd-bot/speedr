@@ -223,6 +223,188 @@ export default function App() {
           <div style={s.controls}>
             <button style={s.ctrlBtn} onClick={stepBack}>‹‹</button>
             <button style={s.ctrlBtnPlay} onClick={togglePlay}>
-              {playing ? "⏸" : done ? "↺" : "▶"}
+              {playing ? "||" : done ? "<<" : ">"}
             </button>
-            <div style={s.speedGroup​​​​​​​​​​​​​​​​
+            <div style={s.speedGroup}>
+              <button style={s.ctrlBtn} onClick={() => setWpm((w) => Math.max(80, w - 20))}>−</button>
+              <div style={s.wpmLabel}>{wpm} <span style={s.wpmUnit}>wpm</span></div>
+              <button style={s.ctrlBtn} onClick={() => setWpm((w) => Math.min(900, w + 20))}>+</button>
+            </div>
+          </div>
+
+          <div style={s.statsRow}>
+            <span>{totalWords} words</span>
+            <span>·</span>
+            <span>{wordsLeft} left</span>
+            <span>·</span>
+            <span>~{minsLeft} min</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const s = {
+  page: {
+    minHeight: "100vh",
+    background: "#0b0b14",
+    color: "#e6e6f0",
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif",
+    padding: "32px 20px",
+    maxWidth: 760,
+    margin: "0 auto",
+    boxSizing: "border-box",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 24,
+  },
+  logo: { fontSize: 22, fontWeight: 700, letterSpacing: "-0.02em" },
+  logoMuted: { color: "#888899", fontWeight: 400 },
+  btnGhost: {
+    background: "transparent",
+    color: "#888899",
+    border: "1px solid #25253a",
+    borderRadius: 8,
+    padding: "6px 12px",
+    fontSize: 13,
+    cursor: "pointer",
+  },
+  btnPrimary: {
+    background: "#a78bfa",
+    color: "#0b0b14",
+    border: "none",
+    borderRadius: 8,
+    padding: "10px 18px",
+    fontSize: 14,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  tabs: { display: "flex", gap: 8, marginBottom: 16 },
+  tab: {
+    background: "transparent",
+    color: "#888899",
+    border: "1px solid #25253a",
+    borderRadius: 8,
+    padding: "8px 14px",
+    fontSize: 14,
+    cursor: "pointer",
+  },
+  tabActive: { color: "#e6e6f0", borderColor: "#a78bfa" },
+  textarea: {
+    width: "100%",
+    minHeight: 160,
+    background: "#15151f",
+    color: "#e6e6f0",
+    border: "1px solid #25253a",
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 15,
+    fontFamily: "inherit",
+    resize: "vertical",
+    boxSizing: "border-box",
+  },
+  wordCount: { color: "#888899", fontSize: 13, marginTop: 6 },
+  urlRow: { display: "flex", gap: 8 },
+  urlInput: {
+    flex: 1,
+    background: "#15151f",
+    color: "#e6e6f0",
+    border: "1px solid #25253a",
+    borderRadius: 10,
+    padding: "10px 14px",
+    fontSize: 15,
+    fontFamily: "inherit",
+  },
+  error: { color: "#f87171", fontSize: 14, marginTop: 10 },
+  loading: { color: "#888899", fontSize: 14, marginTop: 10 },
+  stage: {
+    background: "#15151f",
+    border: "1px solid #25253a",
+    borderRadius: 14,
+    padding: "56px 24px",
+    minHeight: 160,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+  },
+  stageRule: {
+    position: "absolute",
+    top: "50%",
+    left: "10%",
+    right: "10%",
+    height: 1,
+    background: "#25253a",
+    opacity: 0.4,
+  },
+  chunkText: { fontSize: 28, fontWeight: 500, textAlign: "center", lineHeight: 1.3 },
+  stageMeta: {
+    position: "absolute",
+    bottom: 12,
+    right: 16,
+    color: "#888899",
+    fontSize: 12,
+  },
+  progressWrap: {
+    height: 4,
+    background: "#25253a",
+    borderRadius: 2,
+    marginTop: 16,
+    overflow: "hidden",
+  },
+  progressBar: { height: "100%", background: "#a78bfa", transition: "width 120ms linear" },
+  controls: {
+    display: "flex",
+    gap: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 18,
+  },
+  ctrlBtn: {
+    background: "#15151f",
+    color: "#e6e6f0",
+    border: "1px solid #25253a",
+    borderRadius: 8,
+    width: 44,
+    height: 44,
+    fontSize: 16,
+    cursor: "pointer",
+  },
+  ctrlBtnPlay: {
+    background: "#a78bfa",
+    color: "#0b0b14",
+    border: "none",
+    borderRadius: 8,
+    width: 56,
+    height: 44,
+    fontSize: 18,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  speedGroup: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    marginLeft: 12,
+  },
+  wpmLabel: {
+    minWidth: 78,
+    textAlign: "center",
+    fontSize: 14,
+    fontWeight: 600,
+  },
+  wpmUnit: { color: "#888899", fontWeight: 400 },
+  statsRow: {
+    display: "flex",
+    gap: 8,
+    justifyContent: "center",
+    color: "#888899",
+    fontSize: 13,
+    marginTop: 14,
+  },
+};
