@@ -26,47 +26,38 @@ const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
 const DEFAULT_ENABLED = ALL_FEEDS.map(f => f.id);
 
 const GLOBAL_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap');
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  html { height: 100%; }
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap');
+  *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  html { height:100%; }
   body {
-    height: 100%;
-    background: #111118;
-    color: #f0f0f8;
-    font-family: 'Inter', system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    overscroll-behavior: none;
-    overflow: hidden;
-    position: fixed;
-    width: 100%;
-    -webkit-user-select: none;
-    user-select: none;
+    height:100%;
+    background:#0d0d0d;
+    color:#e0e0e0;
+    font-family:'Inter',system-ui,sans-serif;
+    font-weight:300;
+    letter-spacing:0.01em;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    overscroll-behavior:none;
+    overflow:hidden;
+    position:fixed;
+    width:100%;
+    -webkit-user-select:none;
+    user-select:none;
   }
-  #root { height: 100%; }
-  input, textarea, button { font-family: inherit; }
-  textarea, input { -webkit-user-select: text; user-select: text; }
-  ::-webkit-scrollbar { display: none; }
-  * { scrollbar-width: none; }
-
-  @keyframes fadeIn  { from{opacity:0} to{opacity:1} }
-  @keyframes fadeOut { from{opacity:1} to{opacity:0} }
-  @keyframes slideUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
-  @keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:0.25} }
-
-  .slide-up { animation: slideUp 0.2s ease-out both; }
-
-  .ui-layer {
-    transition: opacity 0.35s ease, transform 0.35s ease;
-  }
-  .ui-layer.hidden {
-    opacity: 0;
-    pointer-events: none;
-    transform: translateY(-6px);
-  }
-
-  /* landscape: make reader fill viewport */
-  @media (orientation: landscape) {
-    .reader-stage { height: calc(100dvh - 120px) !important; font-size: clamp(22px, 5vh, 36px) !important; }
+  #root { height:100%; }
+  input,textarea,button { font-family:inherit; font-weight:300; }
+  textarea,input { -webkit-user-select:text; user-select:text; }
+  ::placeholder { color:#444444; }
+  ::-webkit-scrollbar { display:none; }
+  * { scrollbar-width:none; }
+  @keyframes slideUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.15} }
+  .slide-up { animation:slideUp 0.18s ease-out both; }
+  .ui-layer { transition:opacity 0.3s ease, transform 0.3s ease; }
+  .ui-layer.hidden { opacity:0; pointer-events:none; transform:translateY(-4px); }
+  @media (orientation:landscape) {
+    .reader-stage { height:calc(100dvh - 100px) !important; }
   }
 `;
 
@@ -104,7 +95,7 @@ function OrpWord({ word }) {
   return (
     <span>
       {s.slice(0,i)}
-      <span style={{color:'#ff5c5c',fontWeight:600}}>{s[i]}</span>
+      <span style={{color:'#ff4444',fontWeight:700}}>{s[i]}</span>
       {s.slice(i+1)}{p}
     </span>
   );
@@ -168,9 +159,9 @@ function CopyButton({ text }) {
     <button onClick={copy} style={{
       marginTop:10, width:'100%', padding:'12px', border:'none',
       borderRadius:12, fontSize:14, fontWeight:600, cursor:'pointer',
-      background: copied ? '#1a3a2a' : '#1a1a2e',
+      background: copied ? '#0f2a1a' : '#222222',
       color: copied ? '#50d89a' : '#8b7fff',
-      border: '1px solid ' + (copied ? '#50d89a' : '#2a2a4a'),
+      border: '1px solid ' + (copied ? '#50d89a' : '#333333'),
       transition:'all 0.2s',
     }}>
       {copied ? 'Copied!' : 'Copy bookmarklet code'}
@@ -309,7 +300,7 @@ export default function App() {
         paddingTop:'env(safe-area-inset-top)',
         paddingLeft:'env(safe-area-inset-left)',
         paddingRight:'env(safe-area-inset-right)',
-        background:'#111118',
+        background:'#0d0d0d',
       }}>
 
         {/* TOP BAR */}
@@ -317,9 +308,9 @@ export default function App() {
           flexShrink:0,
           display:'flex',justifyContent:'space-between',alignItems:'center',
           padding:'14px 20px 10px',
-          borderBottom:'1px solid #1c1c28',
+          borderBottom:'1px solid #1c1c1c',
         }}>
-          <span style={{fontSize:20,fontWeight:600,letterSpacing:-0.8,color:'#ffffff'}}>speedr</span>
+          <span style={{fontSize:20,fontWeight:600,letterSpacing:-0.8,color:'#e5e5e5'}}>speedr</span>
           <div style={{display:'flex',gap:8}}>
             {tab==='news' && (
               <button onClick={()=>setShowSources(s=>!s)} style={showSources?pillActive:pill}>
@@ -343,11 +334,11 @@ export default function App() {
 
               {/* Input card - fades when playing */}
               <div className={`ui-layer${uiFaded?' hidden':''}`} style={card}>
-                <div style={{display:'flex',borderBottom:'1px solid #1a1a26'}}>
+                <div style={{display:'flex',borderBottom:'1px solid #1e1e1e'}}>
                   {['paste','url','bookmarklet'].map(t => (
                     <button key={t} style={{
                       flex:1,padding:'12px 0',border:'none',background:'transparent',
-                      color:inputTab===t?'#8b7fff':'#44445a',
+                      color:inputTab===t?'#8b7fff':'#777777',
                       fontSize:13,fontWeight:500,cursor:'pointer',
                       borderBottom:inputTab===t?'2px solid #8b7fff':'2px solid transparent',
                     }} onClick={()=>setInputTab(t)}>{t}</button>
@@ -373,10 +364,10 @@ export default function App() {
                       </button>
                     </div>
                     {fetchErr && <div style={{color:'#ff6b6b',fontSize:12,marginTop:8,lineHeight:1.5}}>{fetchErr}</div>}
-                    {fetching && <div style={{color:'#44445a',fontSize:12,marginTop:8,animation:'pulse 1.4s infinite'}}>Extracting article...</div>}
+                    {fetching && <div style={{color:'#737373',fontSize:12,marginTop:8,animation:'pulse 1.4s infinite'}}>Extracting article...</div>}
                   </>}
                   {inputTab==='bookmarklet' && <>
-                    <p style={{fontSize:13,color:'#55556a',lineHeight:1.7,marginBottom:12}}>
+                    <p style={{fontSize:13,color:'#8a8a8a',lineHeight:1.7,marginBottom:12}}>
                       On iPhone: bookmark any page, edit it, replace the URL with this code. Tap the button to copy it.
                     </p>
                     <textarea readOnly value={bookmarkletCode} rows={3}
@@ -409,24 +400,24 @@ export default function App() {
                   minHeight: playing ? 0 : 160,
                 }}>
                   {fetching ? (
-                    <div style={{color:'#44445a',fontSize:14,animation:'pulse 1.4s infinite'}}>loading...</div>
+                    <div style={{color:'#737373',fontSize:14,animation:'pulse 1.4s infinite'}}>loading...</div>
                   ) : !chunks.length ? (
                     <div style={{textAlign:'center'}}>
-                      <div style={{color:'#3a3a50',fontSize:15,marginBottom:8}}>load text above</div>
+                      <div style={{color:'#525252',fontSize:15,marginBottom:8}}>load text above</div>
                     </div>
                   ) : done ? (
                     <span style={{color:'#50d89a',fontSize:18,fontWeight:600}}>done</span>
                   ) : idx===0 && !playing ? (
                     <div style={{textAlign:'center'}}>
-                      <div style={{color:'#44445a',fontSize:15,marginBottom:6}}>hold to read</div>
-                      <div style={{color:'#2a2a3a',fontSize:12}}>release to pause</div>
+                      <div style={{color:'#737373',fontSize:15,marginBottom:6}}>hold to read</div>
+                      <div style={{color:'#525252',fontSize:12}}>release to pause</div>
                     </div>
                   ) : (
                     <div style={{
                       fontFamily:"'JetBrains Mono',monospace",
-                      fontSize:'clamp(26px,6.5vw,44px)',
-                      textAlign:'center',lineHeight:1.35,
-                      letterSpacing:0.5,color:'#ffffff',
+                      fontSize:'clamp(28px,7vw,48px)',
+                      textAlign:'center',lineHeight:1.3,
+                      letterSpacing:0.3,color:'#e8e8e8',
                       fontWeight:500,
                     }}>
                       <ChunkView chunk={currentChunk}/>
@@ -435,13 +426,13 @@ export default function App() {
                 </div>
 
                 {/* Progress bar */}
-                <div style={{height:3,background:'#1a1a26',flexShrink:0}}>
+                <div style={{height:3,background:'#222222',flexShrink:0}}>
                   <div style={{height:'100%',width:progress+'%',background:'#7c6af7',transition:'width 0.12s linear'}}/>
                 </div>
 
                 {/* Stats - fade when playing */}
                 <div className={`ui-layer${uiFaded?' hidden':''}`}
-                  style={{display:'flex',justifyContent:'space-between',padding:'10px 16px',fontSize:12,color:'#55556a',flexShrink:0}}>
+                  style={{display:'flex',justifyContent:'space-between',padding:'10px 16px',fontSize:12,color:'#8a8a8a',flexShrink:0}}>
                   <span>{totalWords.toLocaleString()} words</span>
                   <span>{minsLeft} min left</span>
                   <span>{Math.round(progress)}%</span>
@@ -451,7 +442,7 @@ export default function App() {
               {/* Speed slider - fades when playing */}
               <div className={`ui-layer${uiFaded?' hidden':''}`} style={{...card,padding:'14px 16px'}}>
                 <div style={{display:'flex',alignItems:'center',gap:12}}>
-                  <span style={{fontSize:13,color:'#88889a',minWidth:58,fontVariantNumeric:'tabular-nums'}}>{wpm} wpm</span>
+                  <span style={{fontSize:13,color:'#909090',minWidth:58,fontVariantNumeric:'tabular-nums'}}>{wpm} wpm</span>
                   <input type="range" min={100} max={700} step={10} value={wpm}
                     onChange={e=>setWpm(+e.target.value)}
                     style={{flex:1,accentColor:'#8b7fff',cursor:'pointer'}}/>
@@ -461,7 +452,7 @@ export default function App() {
               {/* Release hint while playing */}
               {playing && (
                 <div style={{
-                  textAlign:'center',fontSize:12,color:'#2a2a3a',
+                  textAlign:'center',fontSize:12,color:'#525252',
                   paddingBottom:8,flexShrink:0,
                   letterSpacing:0.5,
                 }}>release to pause</div>
@@ -477,33 +468,33 @@ export default function App() {
                   <button key={cat} style={{
                     padding:'7px 14px',borderRadius:20,fontSize:13,border:'none',
                     cursor:'pointer',whiteSpace:'nowrap',flexShrink:0,fontWeight:500,
-                    background:category===cat?'#7c6af7':'#171724',
-                    color:category===cat?'#fff':'#55556a',
+                    background:category===cat?'#7c6af7':'#1f1f1f',
+                    color:category===cat?'#fff':'#8a8a8a',
                     transition:'all 0.15s',
                   }} onClick={()=>setCategory(cat)}>{cat}</button>
                 ))}
               </div>
               <div style={card}>
                 {feedLoading ? (
-                  <div style={{padding:48,textAlign:'center',color:'#33334a',fontSize:14,animation:'pulse 1.4s infinite'}}>Loading...</div>
+                  <div style={{padding:48,textAlign:'center',color:'#8a8a8a',fontSize:14,animation:'pulse 1.4s infinite'}}>Loading...</div>
                 ) : visibleItems.length===0 ? (
-                  <div style={{padding:48,textAlign:'center',color:'#33334a',fontSize:14}}>No articles. Enable sources or refresh.</div>
+                  <div style={{padding:48,textAlign:'center',color:'#8a8a8a',fontSize:14}}>No articles. Enable sources or refresh.</div>
                 ) : visibleItems.map((item,i) => (
                   <div key={i} onClick={()=>handleReadArticle(item)} style={{
                     padding:'14px 16px',
-                    borderBottom:i<visibleItems.length-1?'1px solid #191924':'none',
+                    borderBottom:i<visibleItems.length-1?'1px solid #1c1c1c':'none',
                     display:'flex',gap:12,cursor:'pointer',
                   }}>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:11,color:'#7c6af7',marginBottom:5,fontWeight:600,letterSpacing:0.3}}>
                         {item.source} &nbsp; {timeAgo(item.pubDate)}
                       </div>
-                      <div style={{fontSize:15,color:'#e8e8f8',lineHeight:1.45,fontWeight:500}}>{item.title}</div>
+                      <div style={{fontSize:15,color:'#e5e5e5',lineHeight:1.45,fontWeight:500}}>{item.title}</div>
                       {item.description && (
-                        <div style={{fontSize:12,color:'#44445a',marginTop:5,lineHeight:1.5}}>{item.description.slice(0,120)}</div>
+                        <div style={{fontSize:12,color:'#737373',marginTop:5,lineHeight:1.5}}>{item.description.slice(0,120)}</div>
                       )}
                     </div>
-                    <div style={{color:'#2a2a3a',fontSize:16,flexShrink:0,alignSelf:'center'}}>{'>'}</div>
+                    <div style={{color:'#525252',fontSize:16,flexShrink:0,alignSelf:'center'}}>{'>'}</div>
                   </div>
                 ))}
               </div>
@@ -519,7 +510,7 @@ export default function App() {
                 if (!catFeeds.length) return null;
                 return (
                   <div key={cat} style={{...card,marginBottom:10}}>
-                    <div style={{padding:'9px 16px',borderBottom:'1px solid #191924',fontSize:10,color:'#33334a',fontWeight:700,textTransform:'uppercase',letterSpacing:1.2}}>{cat}</div>
+                    <div style={{padding:'9px 16px',borderBottom:'1px solid #1c1c1c',fontSize:10,color:'#8a8a8a',fontWeight:700,textTransform:'uppercase',letterSpacing:1.2}}>{cat}</div>
                     {catFeeds.map((f,i) => {
                       const on = enabledFeeds.includes(f.id);
                       const st = feedStatuses[f.id];
@@ -529,21 +520,21 @@ export default function App() {
                           borderBottom:i<catFeeds.length-1?'1px solid #191924':'none',
                         }}>
                           <div style={{flex:1}}>
-                            <div style={{fontSize:14,color:on?'#e8e8f8':'#44445a',fontWeight:500,transition:'color 0.15s'}}>{f.name}</div>
-                            <div style={{fontSize:11,marginTop:2,color:st==='ok'?'#50d89a':st==='fail'?'#ff6b6b':'#252535'}}>
+                            <div style={{fontSize:14,color:on?'#e5e5e5':'#737373',fontWeight:500,transition:'color 0.15s'}}>{f.name}</div>
+                            <div style={{fontSize:11,marginTop:2,color:st==='ok'?'#4ade80':st==='fail'?'#f87171':'#525252'}}>
                               {st==='ok'?'working':st==='fail'?'failed':'not tested'}
                             </div>
                           </div>
                           <div style={{
                             width:44,height:26,borderRadius:13,flexShrink:0,
-                            background:on?'#7c6af7':'#191924',
-                            border:'1px solid '+(on?'#7c6af7':'#222232'),
+                            background:on?'#7c6af7':'#222222',
+                            border:'1px solid '+(on?'#7c6af7':'#333333'),
                             position:'relative',transition:'background 0.2s',
                           }}>
                             <div style={{
                               position:'absolute',top:3,left:on?21:3,
                               width:18,height:18,borderRadius:9,
-                              background:on?'#fff':'#33334a',
+                              background:on?'#fff':'#737373',
                               transition:'left 0.2s,background 0.2s',
                             }}/>
                           </div>
@@ -554,7 +545,7 @@ export default function App() {
                 );
               })}
               <div style={card}>
-                <div style={{padding:'9px 16px',borderBottom:'1px solid #191924',fontSize:10,color:'#33334a',fontWeight:700,textTransform:'uppercase',letterSpacing:1.2}}>Add RSS feed</div>
+                <div style={{padding:'9px 16px',borderBottom:'1px solid #1c1c1c',fontSize:10,color:'#8a8a8a',fontWeight:700,textTransform:'uppercase',letterSpacing:1.2}}>Add RSS feed</div>
                 <div style={{padding:14,display:'flex',gap:8}}>
                   <input style={{...field,fontSize:14}} placeholder="https://publication.substack.com/feed"
                     value={customUrl} onChange={e=>setCustomUrl(e.target.value)}
@@ -572,14 +563,14 @@ export default function App() {
           {tab==='settings' && (
             <div key="settings" className="slide-up">
               <div style={card}>
-                <div style={{padding:'14px 16px',borderBottom:'1px solid #191924'}}>
+                <div style={{padding:'14px 16px',borderBottom:'1px solid #1c1c1c'}}>
                   <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}>
-                    <span style={{fontSize:14,color:'#e8e8f8',fontWeight:500}}>Reading speed</span>
+                    <span style={{fontSize:14,color:'#e5e5e5',fontWeight:500}}>Reading speed</span>
                     <span style={{fontSize:14,color:'#8b7fff',fontWeight:600}}>{wpm} WPM</span>
                   </div>
                   <input type="range" min={100} max={700} step={10} value={wpm}
                     onChange={e=>setWpm(+e.target.value)} style={{width:'100%',accentColor:'#8b7fff'}}/>
-                  <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#33334a',marginTop:6}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:'#8a8a8a',marginTop:6}}>
                     <span>100</span><span>400</span><span>700</span>
                   </div>
                 </div>
@@ -595,8 +586,8 @@ export default function App() {
                     padding:'13px 16px',gap:16,
                     borderBottom:i<arr.length-1?'1px solid #191924':'none',
                   }}>
-                    <span style={{fontSize:14,color:'#e8e8f8',fontWeight:500,flexShrink:0}}>{k}</span>
-                    <span style={{fontSize:12,color:'#44445a',textAlign:'right',lineHeight:1.5}}>{v}</span>
+                    <span style={{fontSize:14,color:'#e5e5e5',fontWeight:500,flexShrink:0}}>{k}</span>
+                    <span style={{fontSize:12,color:'#737373',textAlign:'right',lineHeight:1.5}}>{v}</span>
                   </div>
                 ))}
               </div>
@@ -609,8 +600,8 @@ export default function App() {
         <div className={`ui-layer${uiFaded?' hidden':''}`} style={{
           flexShrink:0,
           display:'flex',
-          borderTop:'1px solid #1c1c28',
-          background:'#111118',
+          borderTop:'1px solid #1c1c1c',
+          background:'#0d0d0d',
           paddingBottom:'env(safe-area-inset-bottom)',
         }}>
           {[['reader','R','Reader'],['news','N','News'],['settings','S','Settings']].map(([id,icon,label]) => (
@@ -621,9 +612,9 @@ export default function App() {
             }}>
               <span style={{
                 fontSize:20,fontFamily:"'JetBrains Mono',monospace",fontWeight:500,
-                color:tab===id?'#8b7fff':'#2e2e42',
+                color:tab===id?'#8b7fff':'#525252',
               }}>{icon}</span>
-              <span style={{fontSize:10,fontWeight:500,letterSpacing:0.5,color:tab===id?'#8b7fff':'#2e2e42'}}>{label}</span>
+              <span style={{fontSize:10,fontWeight:500,letterSpacing:0.5,color:tab===id?'#8b7fff':'#525252'}}>{label}</span>
             </button>
           ))}
         </div>
@@ -634,32 +625,32 @@ export default function App() {
 }
 
 const card = {
-  background:'#161622',borderRadius:18,
-  border:'1px solid #1e1e2e',overflow:'hidden',
+  background:'#141414',borderRadius:16,
+  border:'1px solid #1e1e1e',overflow:'hidden',
 };
 const field = {
   width:'100%',boxSizing:'border-box',padding:'12px 14px',
-  background:'#0e0e1a',color:'#f0f0f8',
-  border:'1px solid #1e1e2e',borderRadius:12,
-  fontSize:16,fontFamily:"'Inter',sans-serif",
+  background:'#0a0a0a',color:'#e0e0e0',
+  border:'1px solid #1e1e1e',borderRadius:12,
+  fontSize:16,fontFamily:"'Inter',sans-serif",fontWeight:300,
   outline:'none',WebkitAppearance:'none',display:'block',
 };
 const btnPrimary = {
   padding:'12px 18px',border:'none',borderRadius:12,
-  fontSize:14,fontWeight:600,cursor:'pointer',
+  fontSize:14,fontWeight:400,cursor:'pointer',
   background:'#7c6af7',color:'#fff',whiteSpace:'nowrap',
   flexShrink:0,minHeight:44,
 };
 const btnGhost = {
-  padding:'12px 16px',border:'1px solid #1e1e2e',borderRadius:12,
-  fontSize:14,fontWeight:500,cursor:'pointer',
-  background:'transparent',color:'#55556a',
+  padding:'12px 16px',border:'1px solid #1e1e1e',borderRadius:12,
+  fontSize:14,fontWeight:300,cursor:'pointer',
+  background:'transparent',color:'#888888',
   whiteSpace:'nowrap',minHeight:44,
 };
 const pill = {
-  padding:'7px 14px',border:'1px solid #1e1e2e',borderRadius:20,
-  fontSize:12,fontWeight:500,cursor:'pointer',
-  background:'transparent',color:'#55556a',
+  padding:'7px 14px',border:'1px solid #1e1e1e',borderRadius:20,
+  fontSize:12,fontWeight:400,cursor:'pointer',
+  background:'transparent',color:'#888888',
 };
 const pillActive = {
   ...pill,background:'#7c6af7',color:'#fff',border:'1px solid #7c6af7',
