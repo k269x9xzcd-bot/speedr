@@ -122,40 +122,17 @@ function ChunkView({ chunk }) {
 }
 
 async function fetchText(url) {
-  const proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(url);
-  const res = await fetch(proxyUrl);
-  const data = await res.json();
-  const html = data.contents || '';
-  if (!html || html.length < 200) throw new Error('Empty response');
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  doc.querySelectorAll([
-    'script','style','noscript','nav','footer','header','aside','form',
-    '.nav','.footer','.header','.sidebar','.menu','.ad','.advertisement',
-    '.social','.share','.comments','.related','.newsletter','.paywall',
-    '[role=navigation]','[role=banner]','[role=complementary]',
-    'iframe','video','audio',
-  ].join(',')).forEach(n => n.remove());
-
-  const selectors = [
-    'article',
-    'main',
-    '[role=main]',
-    '.article-body','.post-content','.entry-content',
-    '.story-body','.article__body','.article-content',
-    '.post-body','.body-copy','.rich-text',
-  ];
-  for (const sel of selectors) {
-    const el = doc.querySelector(sel);
-    if (el) {
-      const paras = Array.from(el.querySelectorAll('p'))
-        .map(p => p.textContent.trim()).filter(t => t.length > 40);
-      if (paras.length > 2) return paras.join('\n\n');
-    }
-  }
-  const allParas = Array.from(doc.querySelectorAll('p'))
-    .map(p => p.textContent.trim()).filter(t => t.length > 50);
-  if (allParas.length > 2) return allParas.join('\n\n');
-  return (doc.body?.textContent||'').replace(/\s+/g,' ').trim();
+  // r.jina.ai returns clean article text, bypasses most news site blocks
+  const res = await fetch('https://r.jina.ai/' + url, {
+    headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text' }
+  });
+  if (!res.ok) throw new Error('Fetch failed: ' + res.status);
+  const text = await res.text();
+  if (!text || text.length < 100) throw new Error('No content found.');
+  // Strip any Jina metadata header lines (Title:, URL:, etc.)
+  const lines = text.split('\n');
+  const startIdx = lines.findIndex((l, i) => i > 3 && l.trim().length > 0 && !l.startsWith('Title:') && !l.startsWith('URL:') && !l.startsWith('Published') && !l.startsWith('Source:'));
+  return lines.slice(Math.max(0, startIdx)).join('\n').trim();
 }
 
 async function fetchRSS(feed) {
@@ -176,6 +153,29 @@ async function fetchRSS(feed) {
       feedId: feed.id,
     };
   });
+}
+
+
+function CopyButton({ text }) {
+  const [copied, setCopied] = React.useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+  return (
+    <button onClick={copy} style={{
+      marginTop:10, width:'100%', padding:'12px', border:'none',
+      borderRadius:12, fontSize:14, fontWeight:600, cursor:'pointer',
+      background: copied ? '#1a3a2a' : '#1a1a2e',
+      color: copied ? '#50d89a' : '#8b7fff',
+      border: '1px solid ' + (copied ? '#50d89a' : '#2a2a4a'),
+      transition:'all 0.2s',
+    }}>
+      {copied ? 'Copied!' : 'Copy bookmarklet code'}
+    </button>
+  );
 }
 
 export default function App() {
@@ -377,10 +377,11 @@ export default function App() {
                   </>}
                   {inputTab==='bookmarklet' && <>
                     <p style={{fontSize:13,color:'#55556a',lineHeight:1.7,marginBottom:12}}>
-                      On iPhone: bookmark any page, edit it, replace the URL with this code.
+                      On iPhone: bookmark any page, edit it, replace the URL with this code. Tap the button to copy it.
                     </p>
                     <textarea readOnly value={bookmarkletCode} rows={3}
                       style={{...field,fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:'#8b7fff',resize:'none'}}/>
+                    <CopyButton text={bookmarkletCode} />
                   </>}
                 </div>
               </div>
