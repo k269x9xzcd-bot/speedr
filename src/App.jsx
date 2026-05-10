@@ -221,6 +221,19 @@ export default function App() {
 
   useEffect(() => { if (tab==='news' && !feedItems.length) loadFeeds(activeFeeds); }, [tab]);
 
+  // Receive text from bookmarklet via postMessage
+  useEffect(() => {
+    function onMessage(e) {
+      if (e.data && typeof e.data.speedrText === 'string' && e.data.speedrText.length > 50) {
+        setActiveText(e.data.speedrText);
+        setTab('reader');
+        setInputTab('paste');
+      }
+    }
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
   // Hold-to-read handlers
   const onHoldStart = useCallback((e) => {
     if (!chunks.length) return;
@@ -285,7 +298,7 @@ export default function App() {
   const currentChunk = chunks[Math.min(idx,chunks.length-1)]||'';
   const done = chunks.length > 0 && idx >= chunks.length;
   const visibleItems = category==='All' ? feedItems : feedItems.filter(i=>i.category===category);
-  const bookmarkletCode = "javascript:(function(){var u=encodeURIComponent(location.href);window.open('https://k269x9xzcd-bot.github.io/speedr/?url='+u,'_blank');})();";
+  const bookmarkletCode = "javascript:(function(){var el=document.querySelector('.body.markup, article, .post-content, .article-body, main, [role=main]');var text=el?el.innerText:document.body.innerText;var w=window.open('https://k269x9xzcd-bot.github.io/speedr/','_blank');setTimeout(function(){w.postMessage({speedrText:text},'*');},1800);})();";
 
   // When playing, fade the UI layers
   const uiFaded = playing;
