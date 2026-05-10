@@ -2,26 +2,32 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 
 const ALL_FEEDS = [
   { id:'npr-us',       name:'NPR News',             url:'https://feeds.npr.org/1001/rss.xml',                   category:'US' },
-  { id:'reuters-us',   name:'Reuters',               url:'https://feeds.reuters.com/reuters/topNews',             category:'US' },
+  { id:'gnews-us',     name:'Google News US',        url:'https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en', category:'US' },
   { id:'bbc-world',    name:'BBC World',             url:'https://feeds.bbci.co.uk/news/world/rss.xml',          category:'World' },
-  { id:'aljazeera',    name:'Al Jazeera',            url:'https://www.aljazeera.com/xml/rss/all.xml',            category:'World' },
+  { id:'aljazeera',    name:'Al Jazeera',            url:'https://www.aljazeera.com/news/rss.xml',               category:'World' },
   { id:'dw',           name:'DW News',               url:'https://rss.dw.com/rdf/rss-en-all',                    category:'World' },
   { id:'axios-pol',    name:'Axios',                 url:'https://api.axios.com/feed/',                          category:'Politics' },
   { id:'guardian-pol', name:'The Guardian',          url:'https://www.theguardian.com/politics/rss',             category:'Politics' },
-  { id:'nyp-biz',      name:'NY Post Business',      url:'https://nypost.com/business/feed/',                    category:'Business' },
-  { id:'verge',        name:'The Verge',             url:'https://www.theverge.com/rss/index.xml',               category:'Business' },
+  { id:'techcrunch',   name:'TechCrunch',            url:'https://techcrunch.com/feed/',                         category:'Business' },
+
   { id:'npr-health',   name:'NPR Health',            url:'https://feeds.npr.org/1128/rss.xml',                   category:'Health' },
-  { id:'nyp-ent',      name:'NY Post Entertainment', url:'https://nypost.com/entertainment/feed/',               category:'Entertainment' },
+    { id:'ew',           name:'Entertainment Weekly',  url:'https://ew.com/feed/',                                  category:'Entertainment' },
   { id:'ars',          name:'Ars Technica',          url:'https://feeds.arstechnica.com/arstechnica/index',      category:'Science' },
   { id:'npr-sci',      name:'NPR Science',           url:'https://feeds.npr.org/1007/rss.xml',                   category:'Science' },
-  { id:'nyp-metro',    name:'NY Post Metro',         url:'https://nypost.com/metro/feed/',                       category:'Local' },
+  { id:'curbed-ny',    name:'Curbed NY',             url:'https://www.curbed.com/rss/index.xml',                  category:'Local' },
   { id:'gothamist',    name:'Gothamist',             url:'https://gothamist.com/feed',                           category:'Local' },
-  { id:'ny1',          name:'Spectrum NY1',          url:'https://www.ny1.com/nyc/all-boroughs/rss.xml',         category:'Local' },
+  { id:'thecity',      name:'The City NYC',          url:'https://thecity.nyc/feed/',                             category:'Local' },
+  { id:'tribeca',      name:'Tribeca Citizen',       url:'https://tribecacitizen.com/feed/',                      category:'Local' },
   { id:'moneyprinter', name:'Money Printer',         url:'https://themoneyprinter.substack.com/feed',            category:'Substack' },
   { id:'charlie',      name:'Charlie Garcia',        url:'https://charliepgarcia.substack.com/feed',             category:'Substack' },
+  { id:'cnet',         name:'CNET',                  url:'https://www.cnet.com/rss/news/',                        category:'Tech' },
+  { id:'wired',        name:'Wired',                 url:'https://www.wired.com/feed/rss',                        category:'Tech' },
+  { id:'macrumors',    name:'MacRumors',             url:'https://feeds.macrumors.com/MacRumors-All',             category:'Tech' },
+  { id:'mit-tech',     name:'MIT Tech Review',       url:'https://www.technologyreview.com/feed/',                category:'Tech' },
+  { id:'verge-tech',   name:'The Verge',             url:'https://www.theverge.com/rss/index.xml',                category:'Tech' },
 ];
 
-const CATEGORIES = ['All','US','World','Politics','Business','Health','Entertainment','Science','Local','Substack'];
+const CATEGORIES = ['All','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack'];
 const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
 const ALLORIGINS = 'https://api.allorigins.win/get?url=';
 const SUPABASE_RSS = 'https://reojrvyczjrdaobgnrod.supabase.co/functions/v1/rss';
@@ -250,7 +256,18 @@ async function stripJinaHeaders(text) {
   return lines.slice(start).join('\n').trim();
 }
 
+const JINA_BLOCKED = [
+  'nypost.com', 'news.google.com', 'aljazeera.com',
+  'foxnews.com', 'wsj.com', 'nytimes.com',
+];
+
+function isJinaBlocked(url) {
+  try { return JINA_BLOCKED.some(d => new URL(url).hostname.includes(d)); }
+  catch { return false; }
+}
+
 async function fetchViaJina(url) {
+  if (isJinaBlocked(url)) throw new Error('Jina blocked for this domain');
   const res = await fetch('https://r.jina.ai/' + url, {
     headers:{'Accept':'text/plain','X-Return-Format':'text','X-Timeout':'10'},
     signal: AbortSignal.timeout(12000),
@@ -281,8 +298,21 @@ async function fetchViaAllOrigins(url) {
   throw new Error('No paragraphs');
 }
 
+async function fetchViaSupabaseArticle(url) {
+  const p = new URLSearchParams({ mode: 'article', url, t: String(Date.now()) });
+  const res = await fetch(SUPABASE_RSS + '?' + p, { signal: AbortSignal.timeout(12000) });
+  if (!res.ok) throw new Error('Supabase article HTTP ' + res.status);
+  const data = await res.json();
+  if (!data.text || data.words < 100) throw new Error('Too short: ' + data.words + 'w');
+  return data.text;
+}
+
 async function fetchText(url) {
+  // 1. Supabase server-side fetch - works everywhere, no CORS/blocks
+  try { const t = await fetchViaSupabaseArticle(url); if (t.length > 300) return t; } catch(e) { console.log('Supabase article:', e.message); }
+  // 2. Jina - good for open sites
   try { const t = await fetchViaJina(url); if (t.length > 300) return t; } catch(e) { console.log('Jina:', e.message); }
+  // 3. AllOrigins last resort
   try { const t = await fetchViaAllOrigins(url); if (t.length > 200) return t; } catch(e) { console.log('AllOrigins:', e.message); }
   throw new Error('Could not extract article. Use the bookmarklet for paywalled sites.');
 }
@@ -548,12 +578,21 @@ export default function App() {
 
   const handleReadArticle = async (item) => {
     setTab('reader');
-    if (item.fullContent && item.fullContent.length > 300) { setActiveText(item.fullContent); return; }
+    // Use full RSS content if long enough (avoids fetch entirely)
+    if (item.fullContent && item.fullContent.length > 500) {
+      setActiveText(item.fullContent);
+      return;
+    }
     setFetching(true);
     try {
       const text = await fetchText(item.link);
-      setActiveText(text.length > 200 ? text : (item.fullContent || item.title + '. ' + item.description));
-    } catch { setActiveText(item.fullContent || item.title + '. ' + item.description); }
+      // Use whichever is longer: fetched text or RSS content
+      const rssText = item.fullContent || item.description || '';
+      const best = text.length > rssText.length ? text : rssText;
+      setActiveText(best.length > 100 ? best : item.title + '. ' + item.description);
+    } catch {
+      setActiveText(item.fullContent || item.description || item.title);
+    }
     finally { setFetching(false); }
   };
 
