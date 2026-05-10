@@ -23,6 +23,7 @@ const ALL_FEEDS = [
 
 const CATEGORIES = ['All','US','World','Politics','Business','Health','Entertainment','Science','Local','Substack'];
 const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
+const FEED_CACHE_MS = 5 * 60 * 1000; // 5 min cache
 const DEFAULT_ENABLED = ALL_FEEDS.map(f => f.id);
 
 const GLOBAL_CSS = `
@@ -112,22 +113,70 @@ function ChunkView({ chunk }) {
   );
 }
 
-async function fetchText(url) {
-  // r.jina.ai returns clean article text, bypasses most news site blocks
-  const res = await fetch('https://r.jina.ai/' + url, {
-    headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text' }
-  });
-  if (!res.ok) throw new Error('Fetch failed: ' + res.status);
-  const text = await res.text();
-  if (!text || text.length < 100) throw new Error('No content found.');
-  // Strip any Jina metadata header lines (Title:, URL:, etc.)
+async function stripJinaHeaders(text) {
   const lines = text.split('\n');
-  const startIdx = lines.findIndex((l, i) => i > 3 && l.trim().length > 0 && !l.startsWith('Title:') && !l.startsWith('URL:') && !l.startsWith('Published') && !l.startsWith('Source:'));
-  return lines.slice(Math.max(0, startIdx)).join('\n').trim();
+  const skipPrefixes = ['Title:', 'URL:', 'Published', 'Source:', 'Author:', 'Description:'];
+  let start = 0;
+  for (let i = 0; i < Math.min(lines.length, 10); i++) {
+    const l = lines[i].trim();
+    if (!l || skipPrefixes.some(p => l.startsWith(p))) { start = i + 1; continue; }
+    if (l.length > 60) { start = i; break; }
+  }
+  return lines.slice(start).join('\n').trim();
+}
+
+async function fetchViaJina(url) {
+  const res = await fetch('https://r.jina.ai/' + url, {
+    headers: { 'Accept': 'text/plain', 'X-Return-Format': 'text', 'X-Timeout': '10' },
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!res.ok) throw new Error('Jina ' + res.status);
+  const text = await res.text();
+  const clean = await stripJinaHeaders(text);
+  if (clean.length < 200) throw new Error('Too short');
+  return clean;
+}
+
+async function fetchViaAllOrigins(url) {
+  const res = await fetch('https://api.allorigins.win/get?url=' + encodeURIComponent(url), {
+    signal: AbortSignal.timeout(10000),
+  });
+  const data = await res.json();
+  const html = data.contents || '';
+  if (!html || html.length < 500) throw new Error('Empty');
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script,style,noscript,nav,footer,header,aside,form,.nav,.footer,.sidebar,.ad,.social,.comments,.newsletter,.paywall,iframe,video').forEach(n => n.remove());
+  for (const sel of ['article','main','[role=main]','.article-body','.post-content','.entry-content','.story-body','.article__body','.article-content','.body.markup']) {
+    const el = doc.querySelector(sel);
+    if (el) {
+      const paras = Array.from(el.querySelectorAll('p')).map(p => p.textContent.trim()).filter(t => t.length > 40);
+      if (paras.length > 2) return paras.join('\n\n');
+    }
+  }
+  const allParas = Array.from(doc.querySelectorAll('p')).map(p => p.textContent.trim()).filter(t => t.length > 50);
+  if (allParas.length > 2) return allParas.join('\n\n');
+  throw new Error('No paragraphs found');
+}
+
+async function fetchText(url) {
+  // Try Jina first (best for most news sites)
+  try {
+    const text = await fetchViaJina(url);
+    if (text.length > 300) return text;
+  } catch(e) { console.log('Jina failed:', e.message); }
+
+  // Fallback to allorigins
+  try {
+    const text = await fetchViaAllOrigins(url);
+    if (text.length > 200) return text;
+  } catch(e) { console.log('AllOrigins failed:', e.message); }
+
+  throw new Error('Could not extract article text. Try the bookmarklet instead.');
 }
 
 async function fetchRSS(feed) {
-  const res = await fetch(RSS2JSON + encodeURIComponent(feed.url));
+  const cacheBust = '&_=' + Math.floor(Date.now() / 60000); // bust every minute
+  const res = await fetch(RSS2JSON + encodeURIComponent(feed.url) + '&count=20' + cacheBust);
   const data = await res.json();
   if (data.status !== 'ok') throw new Error(data.message || 'Feed error');
   return (data.items || []).slice(0, 15).map(item => {
@@ -189,6 +238,7 @@ export default function App() {
   const [customUrl, setCustomUrl] = useState('');
   const [extraFeeds, setExtraFeeds] = useState(() => { try { return JSON.parse(localStorage.getItem('speedr_custom')||'[]'); } catch { return []; } });
   const [enabledFeeds, setEnabledFeeds] = useState(() => { try { const s = localStorage.getItem('speedr_feeds'); return s ? JSON.parse(s) : DEFAULT_ENABLED; } catch { return DEFAULT_ENABLED; } });
+  const lastFetchRef = useRef(0);
 
   const timerRef = useRef(null);
   const holdRef = useRef(false);
@@ -219,7 +269,15 @@ export default function App() {
     setFeedItems(all); setFeedLoading(false);
   }, []);
 
-  useEffect(() => { if (tab==='news' && !feedItems.length) loadFeeds(activeFeeds); }, [tab]);
+  useEffect(() => {
+    if (tab === 'news') {
+      const now = Date.now();
+      if (now - lastFetchRef.current > FEED_CACHE_MS) {
+        lastFetchRef.current = now;
+        loadFeeds(activeFeeds);
+      }
+    }
+  }, [tab]);
 
   // Receive text from bookmarklet via postMessage
   useEffect(() => {
