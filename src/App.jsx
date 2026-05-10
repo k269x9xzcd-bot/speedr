@@ -9,41 +9,48 @@ const ALL_FEEDS = [
   { id:'axios-pol',    name:'Axios',                 url:'https://api.axios.com/feed/',                          category:'Politics' },
   { id:'guardian-pol', name:'The Guardian',          url:'https://www.theguardian.com/politics/rss',             category:'Politics' },
   { id:'techcrunch',   name:'TechCrunch',            url:'https://techcrunch.com/feed/',                         category:'Business' },
+  { id:'fortune',      name:'Fortune',               url:'https://fortune.com/feed/',                            category:'Business' },
+  { id:'fastco',       name:'Fast Company',          url:'https://www.fastcompany.com/latest/rss',               category:'Business' },
 
   { id:'npr-health',   name:'NPR Health',            url:'https://feeds.npr.org/1128/rss.xml',                   category:'Health' },
-    { id:'ew',           name:'Entertainment Weekly',  url:'https://ew.com/feed/',                                  category:'Entertainment' },
+  { id:'webmd',        name:'WebMD',                 url:'https://rssfeeds.webmd.com/rss/rss.aspx?RSSSource=RSS_PUBLIC', category:'Health' },
+  { id:'ew',           name:'Entertainment Weekly',  url:'https://ew.com/feed/',                                 category:'Entertainment' },
   { id:'ars',          name:'Ars Technica',          url:'https://feeds.arstechnica.com/arstechnica/index',      category:'Science' },
   { id:'npr-sci',      name:'NPR Science',           url:'https://feeds.npr.org/1007/rss.xml',                   category:'Science' },
-  { id:'curbed-ny',    name:'Curbed NY',             url:'https://www.curbed.com/rss/index.xml',                  category:'Local' },
+  { id:'nasa',         name:'NASA',                  url:'https://www.nasa.gov/rss/dyn/breaking_news.rss',       category:'Science' },
+  { id:'newscientist', name:'New Scientist',         url:'https://www.newscientist.com/feed/home/',              category:'Science' },
+  { id:'curbed-ny',    name:'Curbed NY',             url:'https://www.curbed.com/rss/index.xml',                 category:'Local' },
   { id:'gothamist',    name:'Gothamist',             url:'https://gothamist.com/feed',                           category:'Local' },
-  { id:'thecity',      name:'The City NYC',          url:'https://thecity.nyc/feed/',                             category:'Local' },
-  { id:'tribeca',      name:'Tribeca Citizen',       url:'https://tribecacitizen.com/feed/',                      category:'Local' },
+  { id:'thecity',      name:'The City NYC',          url:'https://thecity.nyc/feed/',                            category:'Local' },
+  { id:'tribeca',      name:'Tribeca Citizen',       url:'https://tribecacitizen.com/feed/',                     category:'Local' },
   { id:'moneyprinter', name:'Money Printer',         url:'https://themoneyprinter.substack.com/feed',            category:'Substack' },
   { id:'charlie',      name:'Charlie Garcia',        url:'https://charliepgarcia.substack.com/feed',             category:'Substack' },
-  { id:'cnet',         name:'CNET',                  url:'https://www.cnet.com/rss/news/',                        category:'Tech' },
-  { id:'wired',        name:'Wired',                 url:'https://www.wired.com/feed/rss',                        category:'Tech' },
-  { id:'macrumors',    name:'MacRumors',             url:'https://feeds.macrumors.com/MacRumors-All',             category:'Tech' },
-  { id:'mit-tech',     name:'MIT Tech Review',       url:'https://www.technologyreview.com/feed/',                category:'Tech' },
-  { id:'verge-tech',   name:'The Verge',             url:'https://www.theverge.com/rss/index.xml',                category:'Tech' },
+  { id:'cnet',         name:'CNET',                  url:'https://www.cnet.com/rss/news/',                       category:'Tech' },
+  { id:'wired',        name:'Wired',                 url:'https://www.wired.com/feed/rss',                       category:'Tech' },
+  { id:'macrumors',    name:'MacRumors',             url:'https://feeds.macrumors.com/MacRumors-All',            category:'Tech' },
+  { id:'mit-tech',     name:'MIT Tech Review',       url:'https://www.technologyreview.com/feed/',               category:'Tech' },
+  { id:'verge-tech',   name:'The Verge',             url:'https://www.theverge.com/rss/index.xml',               category:'Tech' },
 ];
 
 const CATEGORIES = ['All','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack'];
 const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
 const ALLORIGINS = 'https://api.allorigins.win/get?url=';
 const SUPABASE_RSS = 'https://reojrvyczjrdaobgnrod.supabase.co/functions/v1/rss';
-const FEED_CACHE_MS = 5 * 60 * 1000;
+const FEED_CACHE_TTL_MS = 30 * 60 * 1000;     // fresh: skip network
+const FEED_CACHE_STALE_MS = 2 * 60 * 60 * 1000; // stale: fallback if fetch fails
+const HISTORY_MAX = 10;
 const DEFAULT_ENABLED = ALL_FEEDS.map(f => f.id);
 
 const DEFAULT_SETTINGS = {
   wpm: 280,
-  chunkSize: 2,        // words per chunk: 1, 2, 3
-  peripheralBefore: 0, // words shown dimmed before focal chunk
-  peripheralAfter: 0,  // words shown dimmed after focal chunk
-  orpOn: true,         // ORP highlight
+  chunkSize: 2,
+  peripheralBefore: 0,
+  peripheralAfter: 0,
+  orpOn: true,
   orpColor: '#e05252',
-  fontSize: 'medium',  // small, medium, large, xlarge
-  fontStyle: 'mono',   // mono, condensed, serif
-  variablePacing: true,// slow down at punctuation
+  fontSize: 'medium',
+  fontStyle: 'mono',
+  variablePacing: true,
   darkBg: '#0d0d0d',
   showProgress: true,
 };
@@ -83,7 +90,7 @@ const GLOBAL_CSS = `
   #root { height:100%; }
   input,textarea,button { font-family:inherit; font-weight:300; }
   textarea,input { -webkit-user-select:text; user-select:text; }
-  ::placeholder { color:#333333; }
+  ::placeholder { color:#3a3a3a; }
   ::-webkit-scrollbar { display:none; }
   * { scrollbar-width:none; }
   @keyframes slideUp { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
@@ -92,7 +99,6 @@ const GLOBAL_CSS = `
   .ui-layer { transition:none; }
   .ui-layer.hidden { opacity:0; pointer-events:none; }
 
-  /* Landscape: fullscreen reader, instant hide everything else */
   @media (orientation:landscape) {
     .landscape-hide { display:none !important; }
     .landscape-reader {
@@ -102,11 +108,9 @@ const GLOBAL_CSS = `
     .landscape-words { font-size:clamp(28px,7vh,56px) !important; }
   }
 
-  /* PWA / standalone: hide Safari chrome hint */
   @media (display-mode:standalone) {
     .safari-hint { display:none !important; }
   }
-  /* ensure body fills exact screen */
   html, body, #root {
     height: 100%;
     height: 100dvh;
@@ -163,7 +167,6 @@ function tokenize(text, chunkSize) {
       out.push([w, words[i+1]].filter(Boolean));
       i += 2;
     } else {
-      // chunk size 3
       out.push([w, words[i+1], words[i+2]].filter(Boolean));
       i += 3;
     }
@@ -186,11 +189,10 @@ function OrpWord({ word, on, color }) {
   return <span>{s.slice(0,i)}<span style={{color, fontWeight:600}}>{s[i]}</span>{s.slice(i+1)}{p}</span>;
 }
 
-function ChunkDisplay({ chunk, settings, peripheral, allChunks, idx }) {
+function ChunkDisplay({ chunk, settings, allChunks, idx }) {
   const font = FONT_MAP[settings.fontStyle];
   const size = FONT_SIZE_MAP[settings.fontSize];
 
-  // Peripheral words before
   const beforeWords = [];
   if (settings.peripheralBefore > 0) {
     let wi = idx - 1;
@@ -202,7 +204,6 @@ function ChunkDisplay({ chunk, settings, peripheral, allChunks, idx }) {
     }
   }
 
-  // Peripheral words after
   const afterWords = [];
   if (settings.peripheralAfter > 0) {
     let wi = idx + 1;
@@ -308,11 +309,8 @@ async function fetchViaSupabaseArticle(url) {
 }
 
 async function fetchText(url) {
-  // 1. Supabase server-side fetch - works everywhere, no CORS/blocks
   try { const t = await fetchViaSupabaseArticle(url); if (t.length > 300) return t; } catch(e) { console.log('Supabase article:', e.message); }
-  // 2. Jina - good for open sites
   try { const t = await fetchViaJina(url); if (t.length > 300) return t; } catch(e) { console.log('Jina:', e.message); }
-  // 3. AllOrigins last resort
   try { const t = await fetchViaAllOrigins(url); if (t.length > 200) return t; } catch(e) { console.log('AllOrigins:', e.message); }
   throw new Error('Could not extract article. Use the bookmarklet for paywalled sites.');
 }
@@ -335,21 +333,16 @@ function parseRSSXML(xmlStr, feed) {
 }
 
 function decodeAllOriginsContent(raw) {
-  // allorigins sometimes base64-encodes binary/RSS responses as data URIs
   if (raw && raw.startsWith('data:') && raw.includes('base64,')) {
     const b64 = raw.split('base64,')[1];
-    try {
-      return atob(b64);
-    } catch(e) { return raw; }
+    try { return atob(b64); } catch(e) { return raw; }
   }
   return raw;
 }
 
 async function fetchRSSViaAllOrigins(feed) {
   const bust = '&t=' + Math.floor(Date.now() / 300000);
-  const res = await fetch(ALLORIGINS + encodeURIComponent(feed.url) + bust, {
-    signal: AbortSignal.timeout(15000)
-  });
+  const res = await fetch(ALLORIGINS + encodeURIComponent(feed.url) + bust, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error('allorigins HTTP ' + res.status);
   const data = await res.json();
   let xml = decodeAllOriginsContent(data.contents || '');
@@ -360,9 +353,7 @@ async function fetchRSSViaAllOrigins(feed) {
 
 async function fetchRSSViaRss2json(feed) {
   const bust = '&_=' + Math.floor(Date.now() / 300000);
-  const res = await fetch(RSS2JSON + encodeURIComponent(feed.url) + '&count=20' + bust, {
-    signal: AbortSignal.timeout(15000)
-  });
+  const res = await fetch(RSS2JSON + encodeURIComponent(feed.url) + '&count=20' + bust, { signal: AbortSignal.timeout(15000) });
   if (!res.ok) throw new Error('rss2json HTTP ' + res.status);
   const data = await res.json();
   if (data.status !== 'ok') throw new Error(data.message || 'rss2json error');
@@ -373,7 +364,6 @@ async function fetchRSSViaRss2json(feed) {
   }).filter(i => i.title);
 }
 
-// Use a public CORS proxy that works better for RSS
 async function fetchRSSViaCorsproxy(feed) {
   const url = 'https://corsproxy.io/?' + encodeURIComponent(feed.url);
   const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
@@ -388,11 +378,9 @@ async function fetchRSSViaSupabase(feed) {
     url: feed.url,
     name: feed.name,
     cat: feed.category,
-    t: String(Math.floor(Date.now() / 300000)), // 5min cache bust
+    t: String(Math.floor(Date.now() / 300000)),
   });
-  const res = await fetch(SUPABASE_RSS + '?' + params, {
-    signal: AbortSignal.timeout(12000),
-  });
+  const res = await fetch(SUPABASE_RSS + '?' + params, { signal: AbortSignal.timeout(12000) });
   if (!res.ok) throw new Error('Supabase RSS HTTP ' + res.status);
   const data = await res.json();
   if (data.status !== 'ok') throw new Error(data.error || 'Supabase RSS error');
@@ -400,38 +388,37 @@ async function fetchRSSViaSupabase(feed) {
 }
 
 async function fetchRSS(feed) {
-  // 1. Supabase Edge Function (server-side fetch, no CORS issues)
-  try {
-    const items = await fetchRSSViaSupabase(feed);
-    if (items.length > 0) return items;
-  } catch(e) { console.log(feed.name + ' supabase:', e.message); }
-
-  // 2. allorigins fallback
-  try {
-    const items = await fetchRSSViaAllOrigins(feed);
-    if (items.length > 0) return items;
-  } catch(e) { console.log(feed.name + ' allorigins:', e.message); }
-
-  // 3. corsproxy fallback
-  try {
-    const items = await fetchRSSViaCorsproxy(feed);
-    if (items.length > 0) return items;
-  } catch(e) { console.log(feed.name + ' corsproxy:', e.message); }
-
-  // 4. rss2json last resort
-  try {
-    const items = await fetchRSSViaRss2json(feed);
-    if (items.length > 0) return items;
-  } catch(e) { console.log(feed.name + ' rss2json:', e.message); }
-
+  try { const items = await fetchRSSViaSupabase(feed);   if (items.length > 0) return items; } catch(e) { console.log(feed.name + ' supabase:', e.message); }
+  try { const items = await fetchRSSViaAllOrigins(feed); if (items.length > 0) return items; } catch(e) { console.log(feed.name + ' allorigins:', e.message); }
+  try { const items = await fetchRSSViaCorsproxy(feed);  if (items.length > 0) return items; } catch(e) { console.log(feed.name + ' corsproxy:', e.message); }
+  try { const items = await fetchRSSViaRss2json(feed);   if (items.length > 0) return items; } catch(e) { console.log(feed.name + ' rss2json:', e.message); }
   throw new Error('All methods failed for ' + feed.name);
+}
+
+function getCachedFeed(feedId) {
+  try {
+    const raw = localStorage.getItem('speedr_feed_' + feedId);
+    if (!raw) return null;
+    const { items, savedAt } = JSON.parse(raw);
+    if (!items || !savedAt) return null;
+    const age = Date.now() - savedAt;
+    if (age < FEED_CACHE_TTL_MS) return { items, fresh: true };
+    if (age < FEED_CACHE_STALE_MS) return { items, fresh: false };
+    return null;
+  } catch { return null; }
+}
+
+function setCachedFeed(feedId, items) {
+  try {
+    localStorage.setItem('speedr_feed_' + feedId, JSON.stringify({ items, savedAt: Date.now() }));
+  } catch {}
 }
 
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
   const copy = () => navigator.clipboard.writeText(text).then(() => { setCopied(true); setTimeout(()=>setCopied(false), 2000); });
   return (
-    <button onClick={copy} style={{marginTop:10,width:'100%',padding:'12px',border:'none',borderRadius:12,fontSize:14,fontWeight:400,cursor:'pointer',background:copied?'#0f2a1a':'#111',color:copied?'#50d89a':'#8b7fff',border:'1px solid '+(copied?'#50d89a':'#1f1f1f'),transition:'all 0.2s'}}>
+    <button onClick={copy} style={{marginTop:10,width:'100%',padding:'12px',borderRadius:12,fontSize:14,fontWeight:400,cursor:'pointer',background:copied?'#0f2a1a':'#111',color:copied?'#50d89a':'#8b7fff',border:'1px solid '+(copied?'#50d89a':'#1f1f1f'),transition:'all 0.2s'}}>
       {copied ? 'Copied!' : (label || 'Copy')}
     </button>
   );
@@ -475,6 +462,7 @@ export default function App() {
   const [fetching, setFetching] = useState(false);
   const [fetchErr, setFetchErr] = useState('');
   const [activeText, setActiveText] = useState('');
+  const [activeTitle, setActiveTitle] = useState('');
   const [chunks, setChunks] = useState([]);
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -486,6 +474,7 @@ export default function App() {
   const [customUrl, setCustomUrl] = useState('');
   const [extraFeeds, setExtraFeeds] = useState(() => { try { return JSON.parse(localStorage.getItem('speedr_custom')||'[]'); } catch { return []; } });
   const [enabledFeeds, setEnabledFeeds] = useState(() => { try { const s = localStorage.getItem('speedr_feeds'); return s ? JSON.parse(s) : DEFAULT_ENABLED; } catch { return DEFAULT_ENABLED; } });
+  const [readingHistory, setReadingHistory] = useState(() => { try { return JSON.parse(localStorage.getItem('speedr_history')||'[]'); } catch { return []; } });
 
   // Settings
   const [wpm, setWpm] = useSetting('wpm');
@@ -504,7 +493,10 @@ export default function App() {
   const landscape = useOrientation();
   const timerRef = useRef(null);
   const holdRef = useRef(false);
-  const lastFetchRef = useRef(0);
+  const holdStartTimerRef = useRef(null);
+  const pointerDownRef = useRef({ zone: 'center', t: 0 });
+  const contentRef = useRef(null);
+  const newsScrollPosRef = useRef(0);
 
   const allFeeds = useMemo(() => [...ALL_FEEDS, ...extraFeeds], [extraFeeds]);
   const activeFeeds = useMemo(() => allFeeds.filter(f => enabledFeeds.includes(f.id)), [allFeeds, enabledFeeds]);
@@ -512,6 +504,7 @@ export default function App() {
 
   useEffect(() => {
     if (activeText) { setChunks(tokenize(activeText, chunkSize)); setIdx(0); setPlaying(false); }
+    else { setChunks([]); setIdx(0); setPlaying(false); }
   }, [activeText, chunkSize]);
 
   useEffect(() => {
@@ -522,45 +515,111 @@ export default function App() {
   }, [playing, idx, chunks, baseDelay, variablePacing]);
 
   useEffect(() => {
-    if (tab === 'news') {
-      loadFeeds(activeFeeds);
-    }
+    if (tab === 'news') loadFeeds(activeFeeds);
   }, [tab]);
 
   useEffect(() => {
     function onMessage(e) {
       if (e.data && typeof e.data.speedrText === 'string' && e.data.speedrText.length > 50) {
-        setActiveText(e.data.speedrText); setTab('reader'); setInputTab('paste');
+        saveCurrentToHistory();
+        setActiveTitle('');
+        setActiveText(e.data.speedrText);
+        setTab('reader');
+        setInputTab('paste');
       }
     }
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, []);
+  }, [activeText, activeTitle]);
+
+  const saveCurrentToHistory = useCallback(() => {
+    if (!activeText || !activeTitle) return;
+    setReadingHistory(prev => {
+      const filtered = prev.filter(h => h.title !== activeTitle);
+      const next = [{ title: activeTitle, text: activeText, savedAt: Date.now() }, ...filtered].slice(0, HISTORY_MAX);
+      localStorage.setItem('speedr_history', JSON.stringify(next));
+      return next;
+    });
+  }, [activeText, activeTitle]);
 
   const loadFeeds = useCallback(async (feeds) => {
-    setFeedLoading(true); setFeedStatuses({});
-    const res = await Promise.allSettled(feeds.map(async f => {
-      try { const items = await fetchRSS(f); setFeedStatuses(p=>({...p,[f.id]:'ok'})); return items; }
-      catch { setFeedStatuses(p=>({...p,[f.id]:'fail'})); return []; }
+    setFeedLoading(true);
+    setFeedStatuses({});
+    const results = await Promise.allSettled(feeds.map(async f => {
+      const cached = getCachedFeed(f.id);
+      if (cached?.fresh) {
+        setFeedStatuses(p => ({ ...p, [f.id]: 'ok' }));
+        return cached.items;
+      }
+      try {
+        const items = await fetchRSS(f);
+        setCachedFeed(f.id, items);
+        setFeedStatuses(p => ({ ...p, [f.id]: 'ok' }));
+        return items;
+      } catch {
+        if (cached) {
+          setFeedStatuses(p => ({ ...p, [f.id]: 'stale' }));
+          return cached.items;
+        }
+        setFeedStatuses(p => ({ ...p, [f.id]: 'fail' }));
+        return [];
+      }
     }));
-    const all = res.flatMap(r => r.status==='fulfilled'?r.value:[]);
-    all.sort((a,b)=>new Date(b.pubDate)-new Date(a.pubDate));
-    setFeedItems(all); setFeedLoading(false);
+    const all = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+    all.sort((a,b) => new Date(b.pubDate) - new Date(a.pubDate));
+    setFeedItems(all);
+    setFeedLoading(false);
   }, []);
 
-  const onHoldStart = useCallback((e) => {
+  // Pointer handling — landscape: hold-to-read. Portrait: tap zones + hold.
+  const onPointerDown = useCallback((e) => {
     if (!chunks.length) return;
     e.preventDefault();
-    holdRef.current = true;
-    if (idx >= chunks.length) setIdx(0);
-    setPlaying(true);
-  }, [chunks.length, idx]);
-
-  const onHoldEnd = useCallback((e) => {
-    if (!holdRef.current) return;
-    e.preventDefault();
+    if (landscape) {
+      holdRef.current = true;
+      if (idx >= chunks.length) setIdx(0);
+      setPlaying(true);
+      return;
+    }
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const w = rect.width;
+    pointerDownRef.current.zone = x < w / 3 ? 'left' : x > (2 * w) / 3 ? 'right' : 'center';
+    pointerDownRef.current.t = Date.now();
     holdRef.current = false;
-    setPlaying(false);
+    clearTimeout(holdStartTimerRef.current);
+    holdStartTimerRef.current = setTimeout(() => {
+      holdRef.current = true;
+      if (idx >= chunks.length) setIdx(0);
+      setPlaying(true);
+    }, 220);
+  }, [chunks.length, idx, landscape]);
+
+  const onPointerUp = useCallback((e) => {
+    if (!chunks.length) return;
+    e.preventDefault();
+    clearTimeout(holdStartTimerRef.current);
+    if (holdRef.current) {
+      holdRef.current = false;
+      setPlaying(false);
+      return;
+    }
+    if (landscape) return;
+    const zone = pointerDownRef.current.zone;
+    if (zone === 'left') setIdx(i => Math.max(0, i - 3));
+    else if (zone === 'right') setIdx(i => Math.min(chunks.length, i + 3));
+    else {
+      if (idx >= chunks.length) setIdx(0);
+      setPlaying(p => !p);
+    }
+  }, [chunks.length, idx, landscape]);
+
+  const onPointerCancel = useCallback((e) => {
+    clearTimeout(holdStartTimerRef.current);
+    if (holdRef.current) {
+      holdRef.current = false;
+      setPlaying(false);
+    }
   }, []);
 
   const handleFetchUrl = async () => {
@@ -571,14 +630,22 @@ export default function App() {
       if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
       const text = await fetchText(u);
       if (!text || text.length < 100) throw new Error('Could not extract article text.');
-      setActiveText(text); setTab('reader'); setInputTab('paste');
+      saveCurrentToHistory();
+      setActiveTitle('');
+      setActiveText(text);
+      setTab('reader');
+      setInputTab('paste');
     } catch(e) { setFetchErr(e.message); }
     finally { setFetching(false); }
   };
 
   const handleReadArticle = async (item) => {
+    // Save previous article to history before loading new
+    saveCurrentToHistory();
+    // Save news scroll position
+    if (contentRef.current) newsScrollPosRef.current = contentRef.current.scrollTop;
+    setActiveTitle(item.title || '');
     setTab('reader');
-    // Use full RSS content if long enough (avoids fetch entirely)
     if (item.fullContent && item.fullContent.length > 500) {
       setActiveText(item.fullContent);
       return;
@@ -586,7 +653,6 @@ export default function App() {
     setFetching(true);
     try {
       const text = await fetchText(item.link);
-      // Use whichever is longer: fetched text or RSS content
       const rssText = item.fullContent || item.description || '';
       const best = text.length > rssText.length ? text : rssText;
       setActiveText(best.length > 100 ? best : item.title + '. ' + item.description);
@@ -594,6 +660,33 @@ export default function App() {
       setActiveText(item.fullContent || item.description || item.title);
     }
     finally { setFetching(false); }
+  };
+
+  const goBackToNews = useCallback(() => {
+    setActiveTitle('');
+    setTab('news');
+    requestAnimationFrame(() => {
+      if (contentRef.current) contentRef.current.scrollTop = newsScrollPosRef.current;
+    });
+  }, []);
+
+  const loadFromHistory = (entry) => {
+    saveCurrentToHistory();
+    setActiveTitle(entry.title);
+    setActiveText(entry.text);
+    setTab('reader');
+    setInputTab('paste');
+  };
+
+  const clearHistory = () => {
+    setReadingHistory([]);
+    localStorage.removeItem('speedr_history');
+  };
+
+  const toggleFocus = () => {
+    if (!chunks.length) return;
+    if (idx >= chunks.length) setIdx(0);
+    setPlaying(p => !p);
   };
 
   const toggleFeed = id => {
@@ -621,8 +714,11 @@ export default function App() {
   const done = chunks.length > 0 && idx >= chunks.length;
   const uiFaded = playing;
   const visibleItems = category==='All' ? feedItems : feedItems.filter(i=>i.category===category);
+  const hasText = chunks.length > 0;
 
   const bookmarkletCode = "javascript:(function(){var sel='.body.markup,article,.post-content,.article-body,.story-body,.entry-content,main,[role=main]';var el=document.querySelector(sel);var text=(el?el.innerText:document.body.innerText).trim();if(!text||text.length<100){alert('Speedr: no article text found.');return;}var w=window.open('https://k269x9xzcd-bot.github.io/speedr/','speedr');setTimeout(function(){w.postMessage({speedrText:text},'*');},1800);})();";
+
+  const pillsMask = 'linear-gradient(90deg, transparent 0, black 18px, black calc(100% - 18px), transparent 100%)';
 
   return (
     <>
@@ -630,9 +726,33 @@ export default function App() {
       <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,display:'flex',flexDirection:'column',paddingTop:'env(safe-area-inset-top)',paddingLeft:'env(safe-area-inset-left)',paddingRight:'env(safe-area-inset-right)',background:'#0d0d0d',overflow:'hidden'}}>
 
         {/* TOP BAR */}
-        <div className={`ui-layer landscape-hide${uiFaded?' hidden':''}`} style={{flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px 10px',borderBottom:'1px solid #141414'}}>
-          <span style={{fontSize:20,fontWeight:500,letterSpacing:-0.8,color:'#f0f0f0'}}>speedr</span>
-          <div style={{display:'flex',gap:8}}>
+        <div className={`ui-layer landscape-hide${uiFaded?' hidden':''}`} style={{flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px 10px',borderBottom:'1px solid #141414',gap:10}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,minWidth:0,flex:1}}>
+            {tab==='reader' && activeTitle && (
+              <button onClick={goBackToNews} aria-label="Back to news" style={{...iconBtn,marginLeft:-6}}>{'‹'}</button>
+            )}
+            <span style={{fontSize:20,fontWeight:500,letterSpacing:-0.8,color:'#f0f0f0',whiteSpace:'nowrap'}}>speedr</span>
+            {tab==='reader' && activeTitle && (
+              <span style={{fontSize:12,color:'#888',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',minWidth:0}}>{activeTitle}</span>
+            )}
+          </div>
+          <div style={{display:'flex',gap:8,flexShrink:0}}>
+            {tab==='reader' && (
+              <button
+                onClick={toggleFocus}
+                disabled={!hasText}
+                style={{
+                  ...pill,
+                  opacity: hasText ? 1 : 0.4,
+                  cursor: hasText ? 'pointer' : 'default',
+                  background: playing ? '#7c6af7' : 'transparent',
+                  color: playing ? '#fff' : '#c0c0c0',
+                  border: '1px solid '+(playing ? '#7c6af7' : '#1a1a1a'),
+                }}
+              >
+                {playing ? 'pause' : 'focus'}
+              </button>
+            )}
             {tab==='news' && (
               <button onClick={()=>setShowSources(s=>!s)} style={showSources?pillActive:pill}>
                 {showSources?'done':'sources'}
@@ -642,7 +762,7 @@ export default function App() {
         </div>
 
         {/* CONTENT */}
-        <div style={{flex:'1 1 0',overflowY:'auto',overflowX:'hidden',WebkitOverflowScrolling:'touch',padding:'12px 16px 24px',display:'flex',flexDirection:'column',minHeight:0,maxHeight:'100%'}}>
+        <div ref={contentRef} style={{flex:'1 1 0',overflowY:'auto',overflowX:'hidden',WebkitOverflowScrolling:'touch',padding:'12px 16px 24px',display:'flex',flexDirection:'column',minHeight:0,maxHeight:'100%'}}>
 
           {/* READER */}
           {tab==='reader' && (
@@ -651,16 +771,16 @@ export default function App() {
               {/* Input card */}
               <div className={`ui-layer landscape-hide${uiFaded?' hidden':''}`} style={card}>
                 <div style={{display:'flex',borderBottom:'1px solid #141414'}}>
-                  {['paste','url'].map(t => (
-                    <button key={t} style={{flex:1,padding:'12px 0',border:'none',background:'transparent',color:inputTab===t?'#8b7fff':'#666',fontSize:13,fontWeight:400,cursor:'pointer',borderBottom:inputTab===t?'2px solid #8b7fff':'2px solid transparent'}} onClick={()=>setInputTab(t)}>{t}</button>
+                  {[['paste','Paste'],['url','URL']].map(([t,l]) => (
+                    <button key={t} style={{flex:1,padding:'12px 0',border:'none',background:'transparent',color:inputTab===t?'#8b7fff':'#666',fontSize:13,fontWeight:400,cursor:'pointer',borderBottom:inputTab===t?'2px solid #8b7fff':'2px solid transparent'}} onClick={()=>setInputTab(t)}>{l}</button>
                   ))}
                 </div>
                 <div style={{padding:14}}>
                   {inputTab==='paste' && <>
                     <textarea style={{...field,minHeight:100,resize:'none'}} placeholder="Paste text to read..." value={pasteText} onChange={e=>setPasteText(e.target.value)}/>
                     <div style={{display:'flex',gap:8,marginTop:10}}>
-                      <button style={btnPrimary} onClick={()=>setActiveText(pasteText)} disabled={!pasteText.trim()}>Load</button>
-                      <button style={btnGhost} onClick={()=>{setPasteText('');setActiveText('');setChunks([]);}}>Clear</button>
+                      <button style={btnPrimary} onClick={()=>{ saveCurrentToHistory(); setActiveTitle(''); setActiveText(pasteText); }} disabled={!pasteText.trim()}>Load</button>
+                      <button style={btnGhost} onClick={()=>{setPasteText('');setActiveTitle('');setActiveText('');setChunks([]);}}>Clear</button>
                     </div>
                   </>}
                   {inputTab==='url' && <>
@@ -676,12 +796,12 @@ export default function App() {
 
               {/* READER STAGE */}
               <div
-                onPointerDown={onHoldStart}
-                onPointerUp={onHoldEnd}
-                onPointerCancel={onHoldEnd}
-                onPointerLeave={onHoldEnd}
+                onPointerDown={onPointerDown}
+                onPointerUp={onPointerUp}
+                onPointerCancel={onPointerCancel}
+                onPointerLeave={onPointerCancel}
                 className={landscape ? 'landscape-reader' : ''}
-                style={{...card,flex:(playing||landscape)?1:0,minHeight:(playing||landscape)?0:200,cursor:'pointer',touchAction:'none',transition:'flex 0.3s ease, min-height 0.3s ease',display:'flex',flexDirection:'column'}}
+                style={{...card,flex:(playing||landscape)?1:0,minHeight:(playing||landscape)?0:200,cursor:'pointer',touchAction:'none',transition:'flex 0.3s ease, min-height 0.3s ease',display:'flex',flexDirection:'column',position:'relative'}}
               >
                 <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 28px'}}>
                   {fetching ? (
@@ -689,9 +809,19 @@ export default function App() {
                   ) : !chunks.length ? (
                     <span style={{color:'#c0c0c0',fontSize:15}}>load text above</span>
                   ) : done ? (
-                    <span style={{color:'#50d89a',fontSize:16,fontWeight:400}}>done</span>
+                    <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:14}}>
+                      <div style={{color:'#50d89a',fontSize:15,fontWeight:400,letterSpacing:0.3}}>finished</div>
+                      <div style={{display:'flex',gap:10,flexWrap:'wrap',justifyContent:'center'}}>
+                        <button style={btnPrimary} onClick={(e)=>{e.stopPropagation();setIdx(0);setPlaying(true);}}>Read again</button>
+                        {activeTitle && (
+                          <button style={btnGhost} onClick={(e)=>{e.stopPropagation();goBackToNews();}}>Back to news</button>
+                        )}
+                      </div>
+                    </div>
                   ) : idx===0 && !playing ? (
-                    <span style={{color:'#c0c0c0',fontSize:15}}>hold to read</span>
+                    <span style={{color:'#c0c0c0',fontSize:15,textAlign:'center',lineHeight:1.5}}>
+                      {landscape ? 'hold to read' : 'tap center to play · hold to read'}
+                    </span>
                   ) : (
                     <div className="landscape-words">
                       <ChunkDisplay chunk={currentChunk} settings={settings} allChunks={chunks} idx={Math.min(idx,chunks.length-1)}/>
@@ -699,14 +829,12 @@ export default function App() {
                   )}
                 </div>
 
-                {/* Progress bar */}
                 {showProgress && (
                   <div className={landscape?'landscape-hide':''} style={{height:2,background:'#1a1a1a',flexShrink:0}}>
                     <div style={{height:'100%',width:progress+'%',background:'#7c6af7',transition:'width 0.12s linear'}}/>
                   </div>
                 )}
 
-                {/* Stats */}
                 {!uiFaded && !landscape && (
                   <div style={{display:'flex',justifyContent:'space-between',padding:'9px 16px',fontSize:12,color:'#c0c0c0',flexShrink:0}}>
                     <span>{totalWords.toLocaleString()} words</span>
@@ -730,7 +858,11 @@ export default function App() {
           {/* NEWS */}
           {tab==='news' && !showSources && (
             <div key="news" className="slide-up">
-              <div style={{display:'flex',gap:6,marginBottom:12,overflowX:'auto',paddingBottom:2}}>
+              <div style={{
+                display:'flex',gap:6,marginBottom:12,overflowX:'auto',paddingBottom:2,
+                WebkitMaskImage: pillsMask,
+                maskImage: pillsMask,
+              }}>
                 {CATEGORIES.map(cat => (
                   <button key={cat} style={{padding:'7px 14px',borderRadius:20,fontSize:13,border:'none',cursor:'pointer',whiteSpace:'nowrap',flexShrink:0,fontWeight:400,background:category===cat?'#7c6af7':'#111',color:category===cat?'#fff':'#999',transition:'all 0.15s'}} onClick={()=>setCategory(cat)}>{cat}</button>
                 ))}
@@ -771,7 +903,9 @@ export default function App() {
                         <div key={f.id} onClick={()=>toggleFeed(f.id)} style={{padding:'12px 16px',display:'flex',alignItems:'center',gap:12,cursor:'pointer',borderBottom:i<catFeeds.length-1?'1px solid #111':'none'}}>
                           <div style={{flex:1}}>
                             <div style={{fontSize:14,color:on?'#d8d8d8':'#666',fontWeight:400}}>{f.name}</div>
-                            <div style={{fontSize:11,marginTop:2,color:st==='ok'?'#50d89a':st==='fail'?'#e05252':'#555'}}>{st==='ok'?'working':st==='fail'?'failed':'not tested'}</div>
+                            <div style={{fontSize:11,marginTop:2,color:st==='ok'?'#50d89a':st==='fail'?'#e05252':st==='stale'?'#f0a500':'#555'}}>
+                              {st==='ok'?'working':st==='fail'?'failed':st==='stale'?'cached (offline)':'not tested'}
+                            </div>
                           </div>
                           <Toggle on={on} onChange={()=>toggleFeed(f.id)}/>
                         </div>
@@ -794,6 +928,27 @@ export default function App() {
           {/* SETTINGS */}
           {tab==='settings' && (
             <div key="settings" className="slide-up">
+
+              {/* Recent */}
+              {readingHistory.length > 0 && (
+                <>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',padding:'0 4px 8px'}}>
+                    <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5}}>Recent</div>
+                    <button onClick={clearHistory} style={{background:'none',border:'none',color:'#666',fontSize:11,cursor:'pointer',padding:0}}>clear</button>
+                  </div>
+                  <div style={{...card,marginBottom:16}}>
+                    {readingHistory.map((h,i) => (
+                      <div key={h.savedAt+'_'+i} onClick={()=>loadFromHistory(h)} style={{padding:'12px 16px',borderBottom:i<readingHistory.length-1?'1px solid #111':'none',cursor:'pointer',display:'flex',gap:10,alignItems:'center'}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:13,color:'#e0e0e0',fontWeight:400,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{h.title || 'Untitled'}</div>
+                          <div style={{fontSize:11,color:'#888',marginTop:2}}>{timeAgo(h.savedAt)} ago · {h.text.trim().split(/\s+/).length.toLocaleString()} words</div>
+                        </div>
+                        <div style={{color:'#c0c0c0',fontSize:14,flexShrink:0}}>{'>'}</div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
 
               {/* Reading */}
               <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Reading</div>
@@ -836,7 +991,7 @@ export default function App() {
                 <SettingRow label="Font size">
                   <div style={{display:'flex',gap:6}}>
                     {['small','medium','large','xlarge'].map(s => (
-                      <button key={s} onClick={()=>setFontSize(s)} style={{padding:'4px 8px',borderRadius:6,border:'1px solid '+(fontSize===s?'#7c6af7':'#555'),background:fontSize===s?'#7c6af7':'transparent',color:fontSize===s?'#fff':'#555',fontSize:11,cursor:'pointer'}}>
+                      <button key={s} onClick={()=>setFontSize(s)} style={{minHeight:36,padding:'6px 12px',borderRadius:6,border:'1px solid '+(fontSize===s?'#7c6af7':'#555'),background:fontSize===s?'#7c6af7':'transparent',color:fontSize===s?'#fff':'#aaa',fontSize:13,cursor:'pointer'}}>
                         {s[0].toUpperCase()}
                       </button>
                     ))}
@@ -870,7 +1025,7 @@ export default function App() {
 
         {/* BOTTOM TAB BAR */}
         <div className={`landscape-hide${uiFaded?' hidden':''}`} style={{flexShrink:0,display:'flex',borderTop:'1px solid #1a1a1a',background:'#0d0d0d',paddingBottom:'env(safe-area-inset-bottom)',minHeight:60}}>
-          {[['reader','R','Reader'],['news','N','News'],['settings','\u2699','']].map(([id,icon,label]) => (
+          {[['reader','R','Reader'],['news','N','News'],['settings','⚙','Settings']].map(([id,icon,label]) => (
             <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'12px 0 10px',border:'none',background:'transparent',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2,transition:'color 0.15s'}}>
               <span style={{fontSize:id==='settings'?22:20,fontFamily:id==='settings'?'inherit':"'JetBrains Mono',monospace",fontWeight:id==='settings'?400:500,color:tab===id?'#8b7fff':'#666666'}}>{icon}</span>
               {label && <span style={{fontSize:10,fontWeight:400,letterSpacing:0.5,color:tab===id?'#8b7fff':'#666666'}}>{label}</span>}
@@ -889,3 +1044,4 @@ const btnPrimary = { padding:'12px 18px',border:'none',borderRadius:12,fontSize:
 const btnGhost = { padding:'12px 16px',border:'1px solid #1a1a1a',borderRadius:12,fontSize:14,fontWeight:300,cursor:'pointer',background:'transparent',color:'#c0c0c0',whiteSpace:'nowrap',minHeight:44 };
 const pill = { padding:'7px 14px',border:'1px solid #1a1a1a',borderRadius:20,fontSize:12,fontWeight:400,cursor:'pointer',background:'transparent',color:'#c0c0c0' };
 const pillActive = { ...pill,background:'#7c6af7',color:'#fff',border:'1px solid #7c6af7' };
+const iconBtn = { padding:'4px 10px',border:'none',background:'transparent',color:'#c0c0c0',fontSize:24,lineHeight:1,cursor:'pointer',fontFamily:'inherit' };
