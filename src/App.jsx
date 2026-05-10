@@ -209,7 +209,7 @@ function ChunkDisplay({ chunk, settings, peripheral, allChunks, idx }) {
       flexWrap:'nowrap',
     }}>
       {beforeWords.length > 0 && (
-        <span style={{color:'#333333', fontSize:'0.65em'}}>
+        <span style={{color:'#aaaaaa', fontSize:'0.65em'}}>
           {beforeWords.join(' ')}
         </span>
       )}
@@ -222,7 +222,7 @@ function ChunkDisplay({ chunk, settings, peripheral, allChunks, idx }) {
         ))}
       </span>
       {afterWords.length > 0 && (
-        <span style={{color:'#333333', fontSize:'0.65em'}}>
+        <span style={{color:'#aaaaaa', fontSize:'0.65em'}}>
           {afterWords.join(' ')}
         </span>
       )}
@@ -303,7 +303,7 @@ function CopyButton({ text, label }) {
 
 function Toggle({ on, onChange }) {
   return (
-    <div onClick={()=>onChange(!on)} style={{width:44,height:26,borderRadius:13,flexShrink:0,background:on?'#7c6af7':'#1a1a1a',border:'1px solid '+(on?'#7c6af7':'#222'),position:'relative',cursor:'pointer',transition:'background 0.2s'}}>
+    <div onClick={()=>onChange(!on)} style={{width:44,height:26,borderRadius:13,flexShrink:0,background:on?'#7c6af7':'#1a1a1a',border:'1px solid '+(on?'#7c6af7':'#555'),position:'relative',cursor:'pointer',transition:'background 0.2s'}}>
       <div style={{position:'absolute',top:3,left:on?21:3,width:18,height:18,borderRadius:9,background:on?'#fff':'#444',transition:'left 0.2s,background 0.2s'}}/>
     </div>
   );
@@ -313,8 +313,8 @@ function SettingRow({ label, subtitle, children }) {
   return (
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'13px 16px',borderBottom:'1px solid #141414',gap:12}}>
       <div>
-        <div style={{fontSize:14,color:'#d8d8d8',fontWeight:400}}>{label}</div>
-        {subtitle && <div style={{fontSize:11,color:'#444',marginTop:2}}>{subtitle}</div>}
+        <div style={{fontSize:14,color:'#e8e8e8',fontWeight:400}}>{label}</div>
+        {subtitle && <div style={{fontSize:11,color:'#888',marginTop:2}}>{subtitle}</div>}
       </div>
       <div style={{flexShrink:0}}>{children}</div>
     </div>
@@ -324,9 +324,9 @@ function SettingRow({ label, subtitle, children }) {
 function StepControl({ value, onChange, min, max, label }) {
   return (
     <div style={{display:'flex',alignItems:'center',gap:8}}>
-      <button onClick={()=>onChange(Math.max(min,value-1))} style={{width:28,height:28,borderRadius:6,border:'1px solid #222',background:'#111',color:'#888',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>-</button>
+      <button onClick={()=>onChange(Math.max(min,value-1))} style={{width:28,height:28,borderRadius:6,border:'1px solid #222',background:'#111',color:'#aaa',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>-</button>
       <span style={{fontSize:14,color:'#d8d8d8',minWidth:24,textAlign:'center'}}>{value}{label||''}</span>
-      <button onClick={()=>onChange(Math.min(max,value+1))} style={{width:28,height:28,borderRadius:6,border:'1px solid #222',background:'#111',color:'#888',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+      <button onClick={()=>onChange(Math.min(max,value+1))} style={{width:28,height:28,borderRadius:6,border:'1px solid #222',background:'#111',color:'#aaa',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
     </div>
   );
 }
@@ -387,8 +387,7 @@ export default function App() {
 
   useEffect(() => {
     if (tab === 'news') {
-      const now = Date.now();
-      if (now - lastFetchRef.current > FEED_CACHE_MS) { lastFetchRef.current = now; loadFeeds(activeFeeds); }
+      loadFeeds(activeFeeds);
     }
   }, [tab]);
 
@@ -483,7 +482,7 @@ export default function App() {
   return (
     <>
       <style>{GLOBAL_CSS}</style>
-      <div style={{position:'fixed',inset:0,display:'flex',flexDirection:'column',paddingTop:'env(safe-area-inset-top)',paddingLeft:'env(safe-area-inset-left)',paddingRight:'env(safe-area-inset-right)',background:'#0d0d0d'}}>
+      <div style={{position:'fixed',inset:0,display:'flex',flexDirection:'column',height:'100dvh',paddingTop:'env(safe-area-inset-top)',paddingLeft:'env(safe-area-inset-left)',paddingRight:'env(safe-area-inset-right)',background:'#0d0d0d'}}>
 
         {/* TOP BAR */}
         <div className={`ui-layer landscape-hide${uiFaded?' hidden':''}`} style={{flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px 10px',borderBottom:'1px solid #141414'}}>
@@ -498,7 +497,7 @@ export default function App() {
         </div>
 
         {/* CONTENT */}
-        <div style={{flex:1,overflowY:'auto',overflowX:'hidden',WebkitOverflowScrolling:'touch',padding:'12px 16px',display:'flex',flexDirection:'column'}}>
+        <div style={{flex:1,overflowY:'auto',overflowX:'hidden',WebkitOverflowScrolling:'touch',padding:'12px 16px 0',display:'flex',flexDirection:'column',minHeight:0}}>
 
           {/* READER */}
           {tab==='reader' && (
@@ -508,7 +507,7 @@ export default function App() {
               <div className={`ui-layer landscape-hide${uiFaded?' hidden':''}`} style={card}>
                 <div style={{display:'flex',borderBottom:'1px solid #141414'}}>
                   {['paste','url'].map(t => (
-                    <button key={t} style={{flex:1,padding:'12px 0',border:'none',background:'transparent',color:inputTab===t?'#8b7fff':'#333',fontSize:13,fontWeight:400,cursor:'pointer',borderBottom:inputTab===t?'2px solid #8b7fff':'2px solid transparent'}} onClick={()=>setInputTab(t)}>{t}</button>
+                    <button key={t} style={{flex:1,padding:'12px 0',border:'none',background:'transparent',color:inputTab===t?'#8b7fff':'#666',fontSize:13,fontWeight:400,cursor:'pointer',borderBottom:inputTab===t?'2px solid #8b7fff':'2px solid transparent'}} onClick={()=>setInputTab(t)}>{t}</button>
                   ))}
                 </div>
                 <div style={{padding:14}}>
@@ -525,7 +524,7 @@ export default function App() {
                       <button style={btnPrimary} onClick={handleFetchUrl} disabled={fetching||!urlInput.trim()}>{fetching?'...':'Fetch'}</button>
                     </div>
                     {fetchErr && <div style={{color:'#e05252',fontSize:12,marginTop:8,lineHeight:1.5}}>{fetchErr}</div>}
-                    {fetching && <div style={{color:'#333',fontSize:12,marginTop:8,animation:'pulse 1.4s infinite'}}>Extracting article...</div>}
+                    {fetching && <div style={{color:'#aaa',fontSize:12,marginTop:8,animation:'pulse 1.4s infinite'}}>Extracting article...</div>}
                   </>}
                 </div>
               </div>
@@ -541,13 +540,13 @@ export default function App() {
               >
                 <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 28px'}}>
                   {fetching ? (
-                    <div style={{color:'#333',fontSize:14,animation:'pulse 1.4s infinite'}}>loading...</div>
+                    <div style={{color:'#aaa',fontSize:14,animation:'pulse 1.4s infinite'}}>loading...</div>
                   ) : !chunks.length ? (
-                    <span style={{color:'#2a2a2a',fontSize:15}}>load text above</span>
+                    <span style={{color:'#aaaaaa',fontSize:15}}>load text above</span>
                   ) : done ? (
                     <span style={{color:'#50d89a',fontSize:16,fontWeight:400}}>done</span>
                   ) : idx===0 && !playing ? (
-                    <span style={{color:'#2a2a2a',fontSize:15}}>hold to read</span>
+                    <span style={{color:'#aaaaaa',fontSize:15}}>hold to read</span>
                   ) : (
                     <div className="landscape-words">
                       <ChunkDisplay chunk={currentChunk} settings={settings} allChunks={chunks} idx={Math.min(idx,chunks.length-1)}/>
@@ -557,14 +556,14 @@ export default function App() {
 
                 {/* Progress bar */}
                 {showProgress && (
-                  <div className={landscape?'landscape-hide':''} style={{height:2,background:'#111',flexShrink:0}}>
+                  <div className={landscape?'landscape-hide':''} style={{height:2,background:'#1a1a1a',flexShrink:0}}>
                     <div style={{height:'100%',width:progress+'%',background:'#7c6af7',transition:'width 0.12s linear'}}/>
                   </div>
                 )}
 
                 {/* Stats */}
                 {!uiFaded && !landscape && (
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'9px 16px',fontSize:12,color:'#333',flexShrink:0}}>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'9px 16px',fontSize:12,color:'#aaa',flexShrink:0}}>
                     <span>{totalWords.toLocaleString()} words</span>
                     <span>{minsLeft} min left</span>
                     <span>{Math.round(progress)}%</span>
@@ -575,7 +574,7 @@ export default function App() {
               {/* Speed slider */}
               <div className={`ui-layer landscape-hide${uiFaded?' hidden':''}`} style={{...card,padding:'14px 16px'}}>
                 <div style={{display:'flex',alignItems:'center',gap:12}}>
-                  <span style={{fontSize:13,color:'#555',minWidth:58}}>{wpm} wpm</span>
+                  <span style={{fontSize:13,color:'#888',minWidth:58}}>{wpm} wpm</span>
                   <input type="range" min={100} max={700} step={10} value={wpm} onChange={e=>setWpm(+e.target.value)} style={{flex:1,accentColor:'#7c6af7',cursor:'pointer'}}/>
                 </div>
               </div>
@@ -588,22 +587,22 @@ export default function App() {
             <div key="news" className="slide-up">
               <div style={{display:'flex',gap:6,marginBottom:12,overflowX:'auto',paddingBottom:2}}>
                 {CATEGORIES.map(cat => (
-                  <button key={cat} style={{padding:'7px 14px',borderRadius:20,fontSize:13,border:'none',cursor:'pointer',whiteSpace:'nowrap',flexShrink:0,fontWeight:400,background:category===cat?'#7c6af7':'#111',color:category===cat?'#fff':'#555',transition:'all 0.15s'}} onClick={()=>setCategory(cat)}>{cat}</button>
+                  <button key={cat} style={{padding:'7px 14px',borderRadius:20,fontSize:13,border:'none',cursor:'pointer',whiteSpace:'nowrap',flexShrink:0,fontWeight:400,background:category===cat?'#7c6af7':'#111',color:category===cat?'#fff':'#999',transition:'all 0.15s'}} onClick={()=>setCategory(cat)}>{cat}</button>
                 ))}
               </div>
               <div style={card}>
                 {feedLoading ? (
-                  <div style={{padding:48,textAlign:'center',color:'#222',fontSize:14,animation:'pulse 1.4s infinite'}}>Loading...</div>
+                  <div style={{padding:48,textAlign:'center',color:'#aaa',fontSize:14,animation:'pulse 1.4s infinite'}}>Loading...</div>
                 ) : visibleItems.length===0 ? (
-                  <div style={{padding:48,textAlign:'center',color:'#222',fontSize:14}}>No articles. Enable sources or refresh.</div>
+                  <div style={{padding:48,textAlign:'center',color:'#aaa',fontSize:14}}>No articles. Enable sources or refresh.</div>
                 ) : visibleItems.map((item,i) => (
                   <div key={i} onClick={()=>handleReadArticle(item)} style={{padding:'14px 16px',borderBottom:i<visibleItems.length-1?'1px solid #111':'none',display:'flex',gap:12,cursor:'pointer'}}>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:11,color:'#7c6af7',marginBottom:5,fontWeight:500,letterSpacing:0.3}}>{item.source} &nbsp; {timeAgo(item.pubDate)}</div>
-                      <div style={{fontSize:15,color:'#d8d8d8',lineHeight:1.45,fontWeight:400}}>{item.title}</div>
-                      {item.description && <div style={{fontSize:12,color:'#333',marginTop:4,lineHeight:1.5}}>{item.description.slice(0,120)}</div>}
+                      <div style={{fontSize:15,color:'#e8e8e8',lineHeight:1.45,fontWeight:400}}>{item.title}</div>
+                      {item.description && <div style={{fontSize:12,color:'#aaa',marginTop:4,lineHeight:1.5}}>{item.description.slice(0,120)}</div>}
                     </div>
-                    <div style={{color:'#222',fontSize:16,flexShrink:0,alignSelf:'center'}}>{'>'}</div>
+                    <div style={{color:'#aaa',fontSize:16,flexShrink:0,alignSelf:'center'}}>{'>'}</div>
                   </div>
                 ))}
               </div>
@@ -619,15 +618,15 @@ export default function App() {
                 if (!catFeeds.length) return null;
                 return (
                   <div key={cat} style={{...card,marginBottom:10}}>
-                    <div style={{padding:'8px 16px',borderBottom:'1px solid #111',fontSize:10,color:'#333',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5}}>{cat}</div>
+                    <div style={{padding:'8px 16px',borderBottom:'1px solid #111',fontSize:10,color:'#aaa',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5}}>{cat}</div>
                     {catFeeds.map((f,i) => {
                       const on = enabledFeeds.includes(f.id);
                       const st = feedStatuses[f.id];
                       return (
                         <div key={f.id} onClick={()=>toggleFeed(f.id)} style={{padding:'12px 16px',display:'flex',alignItems:'center',gap:12,cursor:'pointer',borderBottom:i<catFeeds.length-1?'1px solid #111':'none'}}>
                           <div style={{flex:1}}>
-                            <div style={{fontSize:14,color:on?'#d8d8d8':'#333',fontWeight:400}}>{f.name}</div>
-                            <div style={{fontSize:11,marginTop:2,color:st==='ok'?'#50d89a':st==='fail'?'#e05252':'#222'}}>{st==='ok'?'working':st==='fail'?'failed':'not tested'}</div>
+                            <div style={{fontSize:14,color:on?'#d8d8d8':'#666',fontWeight:400}}>{f.name}</div>
+                            <div style={{fontSize:11,marginTop:2,color:st==='ok'?'#50d89a':st==='fail'?'#e05252':'#555'}}>{st==='ok'?'working':st==='fail'?'failed':'not tested'}</div>
                           </div>
                           <Toggle on={on} onChange={()=>toggleFeed(f.id)}/>
                         </div>
@@ -637,7 +636,7 @@ export default function App() {
                 );
               })}
               <div style={card}>
-                <div style={{padding:'8px 16px',borderBottom:'1px solid #111',fontSize:10,color:'#333',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5}}>Add RSS feed</div>
+                <div style={{padding:'8px 16px',borderBottom:'1px solid #111',fontSize:10,color:'#aaa',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5}}>Add RSS feed</div>
                 <div style={{padding:14,display:'flex',gap:8}}>
                   <input style={{...field,fontSize:14}} placeholder="https://publication.substack.com/feed" value={customUrl} onChange={e=>setCustomUrl(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addCustomFeed()}/>
                   <button style={btnPrimary} onClick={addCustomFeed}>Add</button>
@@ -652,7 +651,7 @@ export default function App() {
             <div key="settings" className="slide-up">
 
               {/* Reading */}
-              <div style={{fontSize:10,color:'#333',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Reading</div>
+              <div style={{fontSize:10,color:'#aaa',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Reading</div>
               <div style={{...card,marginBottom:16}}>
                 <SettingRow label="Speed" subtitle={wpm + ' WPM'}>
                   <div style={{display:'flex',alignItems:'center',gap:8,width:140}}>
@@ -677,7 +676,7 @@ export default function App() {
               </div>
 
               {/* Display */}
-              <div style={{fontSize:10,color:'#333',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Display</div>
+              <div style={{fontSize:10,color:'#aaa',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Display</div>
               <div style={{...card,marginBottom:16}}>
                 <SettingRow label="ORP highlight" subtitle="Red letter at recognition point">
                   <Toggle on={orpOn} onChange={setOrpOn}/>
@@ -692,7 +691,7 @@ export default function App() {
                 <SettingRow label="Font size">
                   <div style={{display:'flex',gap:6}}>
                     {['small','medium','large','xlarge'].map(s => (
-                      <button key={s} onClick={()=>setFontSize(s)} style={{padding:'4px 8px',borderRadius:6,border:'1px solid '+(fontSize===s?'#7c6af7':'#222'),background:fontSize===s?'#7c6af7':'transparent',color:fontSize===s?'#fff':'#555',fontSize:11,cursor:'pointer'}}>
+                      <button key={s} onClick={()=>setFontSize(s)} style={{padding:'4px 8px',borderRadius:6,border:'1px solid '+(fontSize===s?'#7c6af7':'#555'),background:fontSize===s?'#7c6af7':'transparent',color:fontSize===s?'#fff':'#555',fontSize:11,cursor:'pointer'}}>
                         {s[0].toUpperCase()}
                       </button>
                     ))}
@@ -701,17 +700,17 @@ export default function App() {
                 <SettingRow label="Font style">
                   <div style={{display:'flex',gap:6}}>
                     {[['mono','Mono'],['condensed','Sans'],['serif','Serif']].map(([k,l]) => (
-                      <button key={k} onClick={()=>setFontStyle(k)} style={{padding:'4px 8px',borderRadius:6,border:'1px solid '+(fontStyle===k?'#7c6af7':'#222'),background:fontStyle===k?'#7c6af7':'transparent',color:fontStyle===k?'#fff':'#555',fontSize:11,cursor:'pointer'}}>{l}</button>
+                      <button key={k} onClick={()=>setFontStyle(k)} style={{padding:'4px 8px',borderRadius:6,border:'1px solid '+(fontStyle===k?'#7c6af7':'#555'),background:fontStyle===k?'#7c6af7':'transparent',color:fontStyle===k?'#fff':'#555',fontSize:11,cursor:'pointer'}}>{l}</button>
                     ))}
                   </div>
                 </SettingRow>
               </div>
 
               {/* Bookmarklet */}
-              <div style={{fontSize:10,color:'#333',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Bookmarklet</div>
+              <div style={{fontSize:10,color:'#aaa',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Bookmarklet</div>
               <div style={{...card,marginBottom:16}}>
                 <div style={{padding:16}}>
-                  <p style={{fontSize:13,color:'#555',lineHeight:1.7,marginBottom:12}}>
+                  <p style={{fontSize:13,color:'#999',lineHeight:1.7,marginBottom:12}}>
                     On iPhone: bookmark any page in Safari, edit the bookmark, replace its URL with the code below. Tap it on any article to send the text to Speedr instantly - works on paywalled sites you are already logged into.
                   </p>
                   <textarea readOnly value={bookmarkletCode} rows={3} style={{...field,fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:'#8b7fff',resize:'none'}}/>
@@ -725,11 +724,11 @@ export default function App() {
         </div>
 
         {/* BOTTOM TAB BAR */}
-        <div className={`landscape-hide${uiFaded?' hidden':''}`} style={{flexShrink:0,display:'flex',borderTop:'1px solid #141414',background:'#0d0d0d',paddingBottom:'env(safe-area-inset-bottom)'}}>
+        <div className={`landscape-hide${uiFaded?' hidden':''}`} style={{flexShrink:0,display:'flex',borderTop:'1px solid #1a1a1a',background:'#0d0d0d',paddingBottom:'max(env(safe-area-inset-bottom), 8px)'}}>
           {[['reader','R','Reader'],['news','N','News'],['settings','\u2699','']].map(([id,icon,label]) => (
             <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'12px 0 10px',border:'none',background:'transparent',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2,transition:'color 0.15s'}}>
-              <span style={{fontSize:id==='settings'?22:20,fontFamily:id==='settings'?'inherit':"'JetBrains Mono',monospace",fontWeight:id==='settings'?400:500,color:tab===id?'#8b7fff':'#252525'}}>{icon}</span>
-              {label && <span style={{fontSize:10,fontWeight:400,letterSpacing:0.5,color:tab===id?'#8b7fff':'#252525'}}>{label}</span>}
+              <span style={{fontSize:id==='settings'?22:20,fontFamily:id==='settings'?'inherit':"'JetBrains Mono',monospace",fontWeight:id==='settings'?400:500,color:tab===id?'#8b7fff':'#666666'}}>{icon}</span>
+              {label && <span style={{fontSize:10,fontWeight:400,letterSpacing:0.5,color:tab===id?'#8b7fff':'#666666'}}>{label}</span>}
             </button>
           ))}
         </div>
@@ -742,6 +741,6 @@ export default function App() {
 const card = { background:'#111111',borderRadius:16,border:'1px solid #1a1a1a',overflow:'hidden',marginBottom:12 };
 const field = { width:'100%',boxSizing:'border-box',padding:'12px 14px',background:'#080808',color:'#d8d8d8',border:'1px solid #1a1a1a',borderRadius:12,fontSize:16,fontFamily:"'Inter',sans-serif",fontWeight:300,outline:'none',WebkitAppearance:'none',display:'block' };
 const btnPrimary = { padding:'12px 18px',border:'none',borderRadius:12,fontSize:14,fontWeight:400,cursor:'pointer',background:'#7c6af7',color:'#fff',whiteSpace:'nowrap',flexShrink:0,minHeight:44 };
-const btnGhost = { padding:'12px 16px',border:'1px solid #1a1a1a',borderRadius:12,fontSize:14,fontWeight:300,cursor:'pointer',background:'transparent',color:'#555',whiteSpace:'nowrap',minHeight:44 };
-const pill = { padding:'7px 14px',border:'1px solid #1a1a1a',borderRadius:20,fontSize:12,fontWeight:400,cursor:'pointer',background:'transparent',color:'#555' };
+const btnGhost = { padding:'12px 16px',border:'1px solid #1a1a1a',borderRadius:12,fontSize:14,fontWeight:300,cursor:'pointer',background:'transparent',color:'#aaa',whiteSpace:'nowrap',minHeight:44 };
+const pill = { padding:'7px 14px',border:'1px solid #1a1a1a',borderRadius:20,fontSize:12,fontWeight:400,cursor:'pointer',background:'transparent',color:'#aaa' };
 const pillActive = { ...pill,background:'#7c6af7',color:'#fff',border:'1px solid #7c6af7' };
