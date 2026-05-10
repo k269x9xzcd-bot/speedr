@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 
 const ALL_FEEDS = [
   { id:'npr-us',       name:'NPR News',             url:'https://feeds.npr.org/1001/rss.xml',                   category:'US' },
-  { id:'ap-us',        name:'AP News',               url:'https://apnews.com/rss',                               category:'US' },
+  { id:'reuters-us',   name:'Reuters',               url:'https://feeds.reuters.com/reuters/topNews',             category:'US' },
   { id:'bbc-world',    name:'BBC World',             url:'https://feeds.bbci.co.uk/news/world/rss.xml',          category:'World' },
   { id:'aljazeera',    name:'Al Jazeera',            url:'https://www.aljazeera.com/xml/rss/all.xml',            category:'World' },
   { id:'dw',           name:'DW News',               url:'https://rss.dw.com/rdf/rss-en-all',                    category:'World' },
-  { id:'politico',     name:'Politico',              url:'https://www.politico.com/rss/politics08.xml',          category:'Politics' },
+  { id:'axios-pol',    name:'Axios',                 url:'https://api.axios.com/feed/',                          category:'Politics' },
   { id:'guardian-pol', name:'The Guardian',          url:'https://www.theguardian.com/politics/rss',             category:'Politics' },
   { id:'nyp-biz',      name:'NY Post Business',      url:'https://nypost.com/business/feed/',                    category:'Business' },
   { id:'verge',        name:'The Verge',             url:'https://www.theverge.com/rss/index.xml',               category:'Business' },
@@ -16,7 +16,7 @@ const ALL_FEEDS = [
   { id:'npr-sci',      name:'NPR Science',           url:'https://feeds.npr.org/1007/rss.xml',                   category:'Science' },
   { id:'nyp-metro',    name:'NY Post Metro',         url:'https://nypost.com/metro/feed/',                       category:'Local' },
   { id:'gothamist',    name:'Gothamist',             url:'https://gothamist.com/feed',                           category:'Local' },
-  { id:'nbcny',        name:'NBC New York',          url:'https://www.nbcnewyork.com/feed/',                     category:'Local' },
+  { id:'ny1',          name:'Spectrum NY1',          url:'https://www.ny1.com/nyc/all-boroughs/rss.xml',         category:'Local' },
   { id:'moneyprinter', name:'Money Printer',         url:'https://themoneyprinter.substack.com/feed',            category:'Substack' },
   { id:'charlie',      name:'Charlie Garcia',        url:'https://charliepgarcia.substack.com/feed',             category:'Substack' },
 ];
@@ -24,6 +24,7 @@ const ALL_FEEDS = [
 const CATEGORIES = ['All','US','World','Politics','Business','Health','Entertainment','Science','Local','Substack'];
 const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
 const ALLORIGINS = 'https://api.allorigins.win/get?url=';
+const SUPABASE_RSS = 'https://reojrvyczjrdaobgnrod.supabase.co/functions/v1/rss';
 const FEED_CACHE_MS = 5 * 60 * 1000;
 const DEFAULT_ENABLED = ALL_FEEDS.map(f => f.id);
 
@@ -288,67 +289,112 @@ async function fetchText(url) {
 
 function parseRSSXML(xmlStr, feed) {
   const doc = new DOMParser().parseFromString(xmlStr, 'text/xml');
-  const isAtom = doc.querySelector('feed') !== null;
+  const isAtom = !!doc.querySelector('feed');
   const items = Array.from(doc.querySelectorAll(isAtom ? 'entry' : 'item')).slice(0, 20);
   return items.map(item => {
-    const get = (sel, attr) => {
-      const el = item.querySelector(sel);
-      return attr ? el?.getAttribute(attr) : el?.textContent?.trim() || '';
-    };
-    const title = get('title') || '';
-    const link = isAtom ? (item.querySelector('link')?.getAttribute('href') || get('link')) : get('link');
-    const desc = (get('description') || get('summary') || '').replace(/<[^>]+>/g,'').trim();
-    const content = (get('content') || get('content\\:encoded') || '').replace(/<[^>]+>/g,'').trim();
+    const get = sel => item.querySelector(sel)?.textContent?.trim() || '';
+    const title = get('title');
+    const link = isAtom
+      ? (item.querySelector('link[rel=alternate]')?.getAttribute('href') || item.querySelector('link')?.getAttribute('href') || get('link'))
+      : get('link');
+    const desc = (get('description') || get('summary')).replace(/<[^>]+>/g,'').trim();
+    const fullText = (get('content') || '').replace(/<[^>]+>/g,'').trim();
     const pubDate = get('pubDate') || get('published') || get('updated') || '';
-    return {
-      title, link,
-      description: desc.slice(0, 200),
-      fullContent: content.length > desc.length ? content : '',
-      pubDate, source: feed.name, category: feed.category, feedId: feed.id,
-    };
+    return { title, link, description: desc.slice(0,200), fullContent: fullText.length > desc.length ? fullText : '', pubDate, source: feed.name, category: feed.category, feedId: feed.id };
   }).filter(i => i.title);
 }
 
+function decodeAllOriginsContent(raw) {
+  // allorigins sometimes base64-encodes binary/RSS responses as data URIs
+  if (raw && raw.startsWith('data:') && raw.includes('base64,')) {
+    const b64 = raw.split('base64,')[1];
+    try {
+      return atob(b64);
+    } catch(e) { return raw; }
+  }
+  return raw;
+}
+
 async function fetchRSSViaAllOrigins(feed) {
-  const bust = '&t=' + Math.floor(Date.now() / 300000); // 5min cache bust
+  const bust = '&t=' + Math.floor(Date.now() / 300000);
   const res = await fetch(ALLORIGINS + encodeURIComponent(feed.url) + bust, {
-    signal: AbortSignal.timeout(10000)
+    signal: AbortSignal.timeout(15000)
   });
-  if (!res.ok) throw new Error('allorigins ' + res.status);
+  if (!res.ok) throw new Error('allorigins HTTP ' + res.status);
   const data = await res.json();
-  const xml = data.contents || '';
+  let xml = decodeAllOriginsContent(data.contents || '');
   if (!xml || xml.length < 100) throw new Error('Empty response');
-  if (!xml.includes('<item') && !xml.includes('<entry')) throw new Error('No RSS items');
+  if (!xml.includes('<item') && !xml.includes('<entry')) throw new Error('No RSS items in response');
   return parseRSSXML(xml, feed);
 }
 
 async function fetchRSSViaRss2json(feed) {
   const bust = '&_=' + Math.floor(Date.now() / 300000);
   const res = await fetch(RSS2JSON + encodeURIComponent(feed.url) + '&count=20' + bust, {
-    signal: AbortSignal.timeout(10000)
+    signal: AbortSignal.timeout(15000)
   });
-  if (!res.ok) throw new Error('rss2json http ' + res.status);
+  if (!res.ok) throw new Error('rss2json HTTP ' + res.status);
   const data = await res.json();
   if (data.status !== 'ok') throw new Error(data.message || 'rss2json error');
-  return (data.items || []).slice(0, 20).map(item => {
+  return (data.items||[]).slice(0,20).map(item => {
     const full = (item.content||'').replace(/<[^>]+>/g,'').trim();
     const desc = (item.description||'').replace(/<[^>]+>/g,'').trim();
     return { title:item.title||'', link:item.link||'', description:desc.slice(0,200), fullContent:full.length>desc.length?full:'', pubDate:item.pubDate||'', source:feed.name, category:feed.category, feedId:feed.id };
   }).filter(i => i.title);
 }
 
+// Use a public CORS proxy that works better for RSS
+async function fetchRSSViaCorsproxy(feed) {
+  const url = 'https://corsproxy.io/?' + encodeURIComponent(feed.url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+  if (!res.ok) throw new Error('corsproxy HTTP ' + res.status);
+  const xml = await res.text();
+  if (!xml.includes('<item') && !xml.includes('<entry')) throw new Error('No RSS items');
+  return parseRSSXML(xml, feed);
+}
+
+async function fetchRSSViaSupabase(feed) {
+  const params = new URLSearchParams({
+    url: feed.url,
+    name: feed.name,
+    cat: feed.category,
+    t: String(Math.floor(Date.now() / 300000)), // 5min cache bust
+  });
+  const res = await fetch(SUPABASE_RSS + '?' + params, {
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!res.ok) throw new Error('Supabase RSS HTTP ' + res.status);
+  const data = await res.json();
+  if (data.status !== 'ok') throw new Error(data.error || 'Supabase RSS error');
+  return data.items || [];
+}
+
 async function fetchRSS(feed) {
-  // Try allorigins first (direct XML parse, no rate limits)
+  // 1. Supabase Edge Function (server-side fetch, no CORS issues)
+  try {
+    const items = await fetchRSSViaSupabase(feed);
+    if (items.length > 0) return items;
+  } catch(e) { console.log(feed.name + ' supabase:', e.message); }
+
+  // 2. allorigins fallback
   try {
     const items = await fetchRSSViaAllOrigins(feed);
     if (items.length > 0) return items;
-  } catch(e) { console.log(feed.name + ' allorigins failed:', e.message); }
-  // Fallback to rss2json
+  } catch(e) { console.log(feed.name + ' allorigins:', e.message); }
+
+  // 3. corsproxy fallback
+  try {
+    const items = await fetchRSSViaCorsproxy(feed);
+    if (items.length > 0) return items;
+  } catch(e) { console.log(feed.name + ' corsproxy:', e.message); }
+
+  // 4. rss2json last resort
   try {
     const items = await fetchRSSViaRss2json(feed);
     if (items.length > 0) return items;
-  } catch(e) { console.log(feed.name + ' rss2json failed:', e.message); }
-  throw new Error('Both methods failed for ' + feed.name);
+  } catch(e) { console.log(feed.name + ' rss2json:', e.message); }
+
+  throw new Error('All methods failed for ' + feed.name);
 }
 
 function CopyButton({ text, label }) {
