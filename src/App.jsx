@@ -23,6 +23,7 @@ const ALL_FEEDS = [
 
 const CATEGORIES = ['All','US','World','Politics','Business','Health','Entertainment','Science','Local','Substack'];
 const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
+const ALLORIGINS = 'https://api.allorigins.win/get?url=';
 const FEED_CACHE_MS = 5 * 60 * 1000;
 const DEFAULT_ENABLED = ALL_FEEDS.map(f => f.id);
 
@@ -97,6 +98,12 @@ const GLOBAL_CSS = `
   /* PWA / standalone: hide Safari chrome hint */
   @media (display-mode:standalone) {
     .safari-hint { display:none !important; }
+  }
+  /* ensure body fills exact screen */
+  html, body, #root {
+    height: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
   }
 `;
 
@@ -209,7 +216,7 @@ function ChunkDisplay({ chunk, settings, peripheral, allChunks, idx }) {
       flexWrap:'nowrap',
     }}>
       {beforeWords.length > 0 && (
-        <span style={{color:'#aaaaaa', fontSize:'0.65em'}}>
+        <span style={{color:'#c0c0c0', fontSize:'0.65em'}}>
           {beforeWords.join(' ')}
         </span>
       )}
@@ -222,7 +229,7 @@ function ChunkDisplay({ chunk, settings, peripheral, allChunks, idx }) {
         ))}
       </span>
       {afterWords.length > 0 && (
-        <span style={{color:'#aaaaaa', fontSize:'0.65em'}}>
+        <span style={{color:'#c0c0c0', fontSize:'0.65em'}}>
           {afterWords.join(' ')}
         </span>
       )}
@@ -279,16 +286,69 @@ async function fetchText(url) {
   throw new Error('Could not extract article. Use the bookmarklet for paywalled sites.');
 }
 
-async function fetchRSS(feed) {
-  const bust = '&_=' + Math.floor(Date.now() / 60000);
-  const res = await fetch(RSS2JSON + encodeURIComponent(feed.url) + '&count=20' + bust);
+function parseRSSXML(xmlStr, feed) {
+  const doc = new DOMParser().parseFromString(xmlStr, 'text/xml');
+  const isAtom = doc.querySelector('feed') !== null;
+  const items = Array.from(doc.querySelectorAll(isAtom ? 'entry' : 'item')).slice(0, 20);
+  return items.map(item => {
+    const get = (sel, attr) => {
+      const el = item.querySelector(sel);
+      return attr ? el?.getAttribute(attr) : el?.textContent?.trim() || '';
+    };
+    const title = get('title') || '';
+    const link = isAtom ? (item.querySelector('link')?.getAttribute('href') || get('link')) : get('link');
+    const desc = (get('description') || get('summary') || '').replace(/<[^>]+>/g,'').trim();
+    const content = (get('content') || get('content\\:encoded') || '').replace(/<[^>]+>/g,'').trim();
+    const pubDate = get('pubDate') || get('published') || get('updated') || '';
+    return {
+      title, link,
+      description: desc.slice(0, 200),
+      fullContent: content.length > desc.length ? content : '',
+      pubDate, source: feed.name, category: feed.category, feedId: feed.id,
+    };
+  }).filter(i => i.title);
+}
+
+async function fetchRSSViaAllOrigins(feed) {
+  const bust = '&t=' + Math.floor(Date.now() / 300000); // 5min cache bust
+  const res = await fetch(ALLORIGINS + encodeURIComponent(feed.url) + bust, {
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!res.ok) throw new Error('allorigins ' + res.status);
   const data = await res.json();
-  if (data.status !== 'ok') throw new Error(data.message || 'Feed error');
-  return (data.items || []).slice(0,15).map(item => {
+  const xml = data.contents || '';
+  if (!xml || xml.length < 100) throw new Error('Empty response');
+  if (!xml.includes('<item') && !xml.includes('<entry')) throw new Error('No RSS items');
+  return parseRSSXML(xml, feed);
+}
+
+async function fetchRSSViaRss2json(feed) {
+  const bust = '&_=' + Math.floor(Date.now() / 300000);
+  const res = await fetch(RSS2JSON + encodeURIComponent(feed.url) + '&count=20' + bust, {
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!res.ok) throw new Error('rss2json http ' + res.status);
+  const data = await res.json();
+  if (data.status !== 'ok') throw new Error(data.message || 'rss2json error');
+  return (data.items || []).slice(0, 20).map(item => {
     const full = (item.content||'').replace(/<[^>]+>/g,'').trim();
     const desc = (item.description||'').replace(/<[^>]+>/g,'').trim();
     return { title:item.title||'', link:item.link||'', description:desc.slice(0,200), fullContent:full.length>desc.length?full:'', pubDate:item.pubDate||'', source:feed.name, category:feed.category, feedId:feed.id };
-  });
+  }).filter(i => i.title);
+}
+
+async function fetchRSS(feed) {
+  // Try allorigins first (direct XML parse, no rate limits)
+  try {
+    const items = await fetchRSSViaAllOrigins(feed);
+    if (items.length > 0) return items;
+  } catch(e) { console.log(feed.name + ' allorigins failed:', e.message); }
+  // Fallback to rss2json
+  try {
+    const items = await fetchRSSViaRss2json(feed);
+    if (items.length > 0) return items;
+  } catch(e) { console.log(feed.name + ' rss2json failed:', e.message); }
+  throw new Error('Both methods failed for ' + feed.name);
 }
 
 function CopyButton({ text, label }) {
@@ -314,7 +374,7 @@ function SettingRow({ label, subtitle, children }) {
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'13px 16px',borderBottom:'1px solid #141414',gap:12}}>
       <div>
         <div style={{fontSize:14,color:'#e8e8e8',fontWeight:400}}>{label}</div>
-        {subtitle && <div style={{fontSize:11,color:'#888',marginTop:2}}>{subtitle}</div>}
+        {subtitle && <div style={{fontSize:11,color:'#b0b0b0',marginTop:2}}>{subtitle}</div>}
       </div>
       <div style={{flexShrink:0}}>{children}</div>
     </div>
@@ -324,9 +384,9 @@ function SettingRow({ label, subtitle, children }) {
 function StepControl({ value, onChange, min, max, label }) {
   return (
     <div style={{display:'flex',alignItems:'center',gap:8}}>
-      <button onClick={()=>onChange(Math.max(min,value-1))} style={{width:28,height:28,borderRadius:6,border:'1px solid #222',background:'#111',color:'#aaa',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>-</button>
+      <button onClick={()=>onChange(Math.max(min,value-1))} style={{width:28,height:28,borderRadius:6,border:'1px solid #222',background:'#111',color:'#c0c0c0',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>-</button>
       <span style={{fontSize:14,color:'#d8d8d8',minWidth:24,textAlign:'center'}}>{value}{label||''}</span>
-      <button onClick={()=>onChange(Math.min(max,value+1))} style={{width:28,height:28,borderRadius:6,border:'1px solid #222',background:'#111',color:'#aaa',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+      <button onClick={()=>onChange(Math.min(max,value+1))} style={{width:28,height:28,borderRadius:6,border:'1px solid #222',background:'#111',color:'#c0c0c0',fontSize:16,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
     </div>
   );
 }
@@ -482,7 +542,7 @@ export default function App() {
   return (
     <>
       <style>{GLOBAL_CSS}</style>
-      <div style={{position:'fixed',inset:0,display:'flex',flexDirection:'column',height:'100dvh',paddingTop:'env(safe-area-inset-top)',paddingLeft:'env(safe-area-inset-left)',paddingRight:'env(safe-area-inset-right)',background:'#0d0d0d'}}>
+      <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,display:'flex',flexDirection:'column',paddingTop:'env(safe-area-inset-top)',paddingLeft:'env(safe-area-inset-left)',paddingRight:'env(safe-area-inset-right)',background:'#0d0d0d',overflow:'hidden'}}>
 
         {/* TOP BAR */}
         <div className={`ui-layer landscape-hide${uiFaded?' hidden':''}`} style={{flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px 10px',borderBottom:'1px solid #141414'}}>
@@ -497,7 +557,7 @@ export default function App() {
         </div>
 
         {/* CONTENT */}
-        <div style={{flex:1,overflowY:'auto',overflowX:'hidden',WebkitOverflowScrolling:'touch',padding:'12px 16px 0',display:'flex',flexDirection:'column',minHeight:0}}>
+        <div style={{flex:'1 1 0',overflowY:'auto',overflowX:'hidden',WebkitOverflowScrolling:'touch',padding:'12px 16px 24px',display:'flex',flexDirection:'column',minHeight:0,maxHeight:'100%'}}>
 
           {/* READER */}
           {tab==='reader' && (
@@ -524,7 +584,7 @@ export default function App() {
                       <button style={btnPrimary} onClick={handleFetchUrl} disabled={fetching||!urlInput.trim()}>{fetching?'...':'Fetch'}</button>
                     </div>
                     {fetchErr && <div style={{color:'#e05252',fontSize:12,marginTop:8,lineHeight:1.5}}>{fetchErr}</div>}
-                    {fetching && <div style={{color:'#aaa',fontSize:12,marginTop:8,animation:'pulse 1.4s infinite'}}>Extracting article...</div>}
+                    {fetching && <div style={{color:'#c0c0c0',fontSize:12,marginTop:8,animation:'pulse 1.4s infinite'}}>Extracting article...</div>}
                   </>}
                 </div>
               </div>
@@ -540,13 +600,13 @@ export default function App() {
               >
                 <div style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 28px'}}>
                   {fetching ? (
-                    <div style={{color:'#aaa',fontSize:14,animation:'pulse 1.4s infinite'}}>loading...</div>
+                    <div style={{color:'#c0c0c0',fontSize:14,animation:'pulse 1.4s infinite'}}>loading...</div>
                   ) : !chunks.length ? (
-                    <span style={{color:'#aaaaaa',fontSize:15}}>load text above</span>
+                    <span style={{color:'#c0c0c0',fontSize:15}}>load text above</span>
                   ) : done ? (
                     <span style={{color:'#50d89a',fontSize:16,fontWeight:400}}>done</span>
                   ) : idx===0 && !playing ? (
-                    <span style={{color:'#aaaaaa',fontSize:15}}>hold to read</span>
+                    <span style={{color:'#c0c0c0',fontSize:15}}>hold to read</span>
                   ) : (
                     <div className="landscape-words">
                       <ChunkDisplay chunk={currentChunk} settings={settings} allChunks={chunks} idx={Math.min(idx,chunks.length-1)}/>
@@ -563,7 +623,7 @@ export default function App() {
 
                 {/* Stats */}
                 {!uiFaded && !landscape && (
-                  <div style={{display:'flex',justifyContent:'space-between',padding:'9px 16px',fontSize:12,color:'#aaa',flexShrink:0}}>
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'9px 16px',fontSize:12,color:'#c0c0c0',flexShrink:0}}>
                     <span>{totalWords.toLocaleString()} words</span>
                     <span>{minsLeft} min left</span>
                     <span>{Math.round(progress)}%</span>
@@ -574,7 +634,7 @@ export default function App() {
               {/* Speed slider */}
               <div className={`ui-layer landscape-hide${uiFaded?' hidden':''}`} style={{...card,padding:'14px 16px'}}>
                 <div style={{display:'flex',alignItems:'center',gap:12}}>
-                  <span style={{fontSize:13,color:'#888',minWidth:58}}>{wpm} wpm</span>
+                  <span style={{fontSize:13,color:'#b0b0b0',minWidth:58}}>{wpm} wpm</span>
                   <input type="range" min={100} max={700} step={10} value={wpm} onChange={e=>setWpm(+e.target.value)} style={{flex:1,accentColor:'#7c6af7',cursor:'pointer'}}/>
                 </div>
               </div>
@@ -592,17 +652,17 @@ export default function App() {
               </div>
               <div style={card}>
                 {feedLoading ? (
-                  <div style={{padding:48,textAlign:'center',color:'#aaa',fontSize:14,animation:'pulse 1.4s infinite'}}>Loading...</div>
+                  <div style={{padding:48,textAlign:'center',color:'#c0c0c0',fontSize:14,animation:'pulse 1.4s infinite'}}>Loading...</div>
                 ) : visibleItems.length===0 ? (
-                  <div style={{padding:48,textAlign:'center',color:'#aaa',fontSize:14}}>No articles. Enable sources or refresh.</div>
+                  <div style={{padding:48,textAlign:'center',color:'#c0c0c0',fontSize:14}}>No articles. Enable sources or refresh.</div>
                 ) : visibleItems.map((item,i) => (
                   <div key={i} onClick={()=>handleReadArticle(item)} style={{padding:'14px 16px',borderBottom:i<visibleItems.length-1?'1px solid #111':'none',display:'flex',gap:12,cursor:'pointer'}}>
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:11,color:'#7c6af7',marginBottom:5,fontWeight:500,letterSpacing:0.3}}>{item.source} &nbsp; {timeAgo(item.pubDate)}</div>
                       <div style={{fontSize:15,color:'#e8e8e8',lineHeight:1.45,fontWeight:400}}>{item.title}</div>
-                      {item.description && <div style={{fontSize:12,color:'#aaa',marginTop:4,lineHeight:1.5}}>{item.description.slice(0,120)}</div>}
+                      {item.description && <div style={{fontSize:12,color:'#c0c0c0',marginTop:4,lineHeight:1.5}}>{item.description.slice(0,120)}</div>}
                     </div>
-                    <div style={{color:'#aaa',fontSize:16,flexShrink:0,alignSelf:'center'}}>{'>'}</div>
+                    <div style={{color:'#c0c0c0',fontSize:16,flexShrink:0,alignSelf:'center'}}>{'>'}</div>
                   </div>
                 ))}
               </div>
@@ -618,7 +678,7 @@ export default function App() {
                 if (!catFeeds.length) return null;
                 return (
                   <div key={cat} style={{...card,marginBottom:10}}>
-                    <div style={{padding:'8px 16px',borderBottom:'1px solid #111',fontSize:10,color:'#aaa',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5}}>{cat}</div>
+                    <div style={{padding:'8px 16px',borderBottom:'1px solid #111',fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5}}>{cat}</div>
                     {catFeeds.map((f,i) => {
                       const on = enabledFeeds.includes(f.id);
                       const st = feedStatuses[f.id];
@@ -636,7 +696,7 @@ export default function App() {
                 );
               })}
               <div style={card}>
-                <div style={{padding:'8px 16px',borderBottom:'1px solid #111',fontSize:10,color:'#aaa',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5}}>Add RSS feed</div>
+                <div style={{padding:'8px 16px',borderBottom:'1px solid #111',fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5}}>Add RSS feed</div>
                 <div style={{padding:14,display:'flex',gap:8}}>
                   <input style={{...field,fontSize:14}} placeholder="https://publication.substack.com/feed" value={customUrl} onChange={e=>setCustomUrl(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addCustomFeed()}/>
                   <button style={btnPrimary} onClick={addCustomFeed}>Add</button>
@@ -651,7 +711,7 @@ export default function App() {
             <div key="settings" className="slide-up">
 
               {/* Reading */}
-              <div style={{fontSize:10,color:'#aaa',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Reading</div>
+              <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Reading</div>
               <div style={{...card,marginBottom:16}}>
                 <SettingRow label="Speed" subtitle={wpm + ' WPM'}>
                   <div style={{display:'flex',alignItems:'center',gap:8,width:140}}>
@@ -676,7 +736,7 @@ export default function App() {
               </div>
 
               {/* Display */}
-              <div style={{fontSize:10,color:'#aaa',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Display</div>
+              <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Display</div>
               <div style={{...card,marginBottom:16}}>
                 <SettingRow label="ORP highlight" subtitle="Red letter at recognition point">
                   <Toggle on={orpOn} onChange={setOrpOn}/>
@@ -707,10 +767,10 @@ export default function App() {
               </div>
 
               {/* Bookmarklet */}
-              <div style={{fontSize:10,color:'#aaa',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Bookmarklet</div>
+              <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Bookmarklet</div>
               <div style={{...card,marginBottom:16}}>
                 <div style={{padding:16}}>
-                  <p style={{fontSize:13,color:'#999',lineHeight:1.7,marginBottom:12}}>
+                  <p style={{fontSize:13,color:'#b8b8b8',lineHeight:1.7,marginBottom:12}}>
                     On iPhone: bookmark any page in Safari, edit the bookmark, replace its URL with the code below. Tap it on any article to send the text to Speedr instantly - works on paywalled sites you are already logged into.
                   </p>
                   <textarea readOnly value={bookmarkletCode} rows={3} style={{...field,fontSize:11,fontFamily:"'JetBrains Mono',monospace",color:'#8b7fff',resize:'none'}}/>
@@ -724,7 +784,7 @@ export default function App() {
         </div>
 
         {/* BOTTOM TAB BAR */}
-        <div className={`landscape-hide${uiFaded?' hidden':''}`} style={{flexShrink:0,display:'flex',borderTop:'1px solid #1a1a1a',background:'#0d0d0d',paddingBottom:'max(env(safe-area-inset-bottom), 8px)'}}>
+        <div className={`landscape-hide${uiFaded?' hidden':''}`} style={{flexShrink:0,display:'flex',borderTop:'1px solid #1a1a1a',background:'#0d0d0d',paddingBottom:'env(safe-area-inset-bottom)',minHeight:60}}>
           {[['reader','R','Reader'],['news','N','News'],['settings','\u2699','']].map(([id,icon,label]) => (
             <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'12px 0 10px',border:'none',background:'transparent',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2,transition:'color 0.15s'}}>
               <span style={{fontSize:id==='settings'?22:20,fontFamily:id==='settings'?'inherit':"'JetBrains Mono',monospace",fontWeight:id==='settings'?400:500,color:tab===id?'#8b7fff':'#666666'}}>{icon}</span>
@@ -741,6 +801,6 @@ export default function App() {
 const card = { background:'#111111',borderRadius:16,border:'1px solid #1a1a1a',overflow:'hidden',marginBottom:12 };
 const field = { width:'100%',boxSizing:'border-box',padding:'12px 14px',background:'#080808',color:'#d8d8d8',border:'1px solid #1a1a1a',borderRadius:12,fontSize:16,fontFamily:"'Inter',sans-serif",fontWeight:300,outline:'none',WebkitAppearance:'none',display:'block' };
 const btnPrimary = { padding:'12px 18px',border:'none',borderRadius:12,fontSize:14,fontWeight:400,cursor:'pointer',background:'#7c6af7',color:'#fff',whiteSpace:'nowrap',flexShrink:0,minHeight:44 };
-const btnGhost = { padding:'12px 16px',border:'1px solid #1a1a1a',borderRadius:12,fontSize:14,fontWeight:300,cursor:'pointer',background:'transparent',color:'#aaa',whiteSpace:'nowrap',minHeight:44 };
-const pill = { padding:'7px 14px',border:'1px solid #1a1a1a',borderRadius:20,fontSize:12,fontWeight:400,cursor:'pointer',background:'transparent',color:'#aaa' };
+const btnGhost = { padding:'12px 16px',border:'1px solid #1a1a1a',borderRadius:12,fontSize:14,fontWeight:300,cursor:'pointer',background:'transparent',color:'#c0c0c0',whiteSpace:'nowrap',minHeight:44 };
+const pill = { padding:'7px 14px',border:'1px solid #1a1a1a',borderRadius:20,fontSize:12,fontWeight:400,cursor:'pointer',background:'transparent',color:'#c0c0c0' };
 const pillActive = { ...pill,background:'#7c6af7',color:'#fff',border:'1px solid #7c6af7' };
