@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 const STORAGE_KEY = 'speedr_train';
 const MODEL = 'claude-haiku-4-5-20251001';
 const SPEED_MAX = 600;
+const BASELINE_WPM = 250;
 
 const PASSAGES = [
   { id:'ocean', title:'Ocean Currents', text:
@@ -85,7 +86,8 @@ async function generateQuestions(passage) {
 function MiniReader({ text, targetWpm, onFinish }) {
   const words = useMemo(() => text.split(/\s+/).filter(Boolean), [text]);
   const [idx, setIdx] = useState(0);
-  const [paused, setPaused] = useState(false);
+  const [started, setStarted] = useState(false);
+  const [paused, setPaused] = useState(true);
   const startRef = useRef(0);
   const pausedAtRef = useRef(0);
   const pausedTotalRef = useRef(0);
@@ -94,31 +96,37 @@ function MiniReader({ text, targetWpm, onFinish }) {
   const finish = useCallback(() => {
     if (doneRef.current) return;
     doneRef.current = true;
+    if (!startRef.current) { onFinish(targetWpm); return; }
     const now = performance.now();
     const pausedMs = pausedTotalRef.current + (paused && pausedAtRef.current ? (now - pausedAtRef.current) : 0);
     const elapsedMs = Math.max(1, now - startRef.current - pausedMs);
     const actual = Math.round(words.length / (elapsedMs / 60000));
     onFinish(actual);
-  }, [paused, words.length, onFinish]);
+  }, [paused, words.length, onFinish, targetWpm]);
 
   useEffect(() => {
-    if (idx === 0 && !startRef.current) startRef.current = performance.now();
     if (idx >= words.length) { finish(); return; }
-    if (paused) return;
+    if (paused || !started) return;
     const t = setTimeout(() => setIdx(i => i + 1), Math.max(20, 60000 / targetWpm));
     return () => clearTimeout(t);
-  }, [idx, paused, targetWpm, words.length, finish]);
+  }, [idx, paused, started, targetWpm, words.length, finish]);
 
   useEffect(() => {
+    if (!started) return;
     if (paused) pausedAtRef.current = performance.now();
     else if (pausedAtRef.current) {
       pausedTotalRef.current += performance.now() - pausedAtRef.current;
       pausedAtRef.current = 0;
     }
-  }, [paused]);
+  }, [paused, started]);
+
+  const begin = () => {
+    if (!started) { setStarted(true); startRef.current = performance.now(); }
+    setPaused(false);
+  };
 
   const w = words[Math.min(idx, words.length - 1)] || '';
-  const orpIdx = Math.min(Math.max(1, Math.floor(w.length / 3)), w.length - 1);
+  const orpIdx = Math.min(Math.max(1, Math.floor(w.length / 3)), Math.max(0, w.length - 1));
   const pre = w.slice(0, orpIdx);
   const orp = w[orpIdx] || '';
   const post = w.slice(orpIdx + 1);
@@ -133,7 +141,7 @@ function MiniReader({ text, targetWpm, onFinish }) {
         <span>{pre}</span><span style={{color:'#e05252'}}>{orp}</span><span>{post}</span>
       </div>
       <div style={{display:'flex', gap:10}}>
-        <button onClick={()=>setPaused(p=>!p)} style={btnGhost}>{paused?'Resume':'Pause'}</button>
+        <button onClick={paused ? begin : ()=>setPaused(true)} style={btnGhost}>{!started ? 'Start Reading' : (paused ? 'Resume' : 'Pause')}</button>
         <button onClick={finish} style={btnPrimary}>Done</button>
       </div>
       <div style={{fontSize:11, color:'#3a3a3a', letterSpacing:1}}>{Math.round(targetWpm)} WPM TARGET</div>
@@ -167,12 +175,15 @@ export default function TrainTab({ readerWpm }) {
   const [loadingQ, setLoadingQ] = useState(false);
   const [lastTarget, setLastTarget] = useState(0);
   const [nextTarget, setNextTarget] = useState(0);
+  const [sessionWpm, setSessionWpm] = useState(BASELINE_WPM);
 
-  const targetWpm = state.target_wpm || readerWpm || 280;
+  const hasBaseline = !!(state.sessions && state.sessions.length > 0);
+  const targetWpm = hasBaseline ? (state.target_wpm || BASELINE_WPM) : BASELINE_WPM;
 
   const start = async () => {
     const p = PASSAGES[Math.floor(Math.random() * PASSAGES.length)];
     setPassage(p);
+    setSessionWpm(targetWpm);
     setLoadingQ(true);
     setPhase('reading');
     const qs = await generateQuestions(p);
@@ -191,13 +202,14 @@ export default function TrainTab({ readerWpm }) {
     const correct = answers.reduce((acc, a, i) => acc + (a === questions[i].answer ? 1 : 0), 0);
     const c = Math.round((correct / questions.length) * 100);
     setComp(c);
-    const newSession = { wpm: actualWpm, comp: c, target: targetWpm, ts: Date.now() };
+    const usedWpm = sessionWpm;
+    const newSession = { wpm: actualWpm, comp: c, target: usedWpm, ts: Date.now() };
     const sessions = [...(state.sessions || []), newSession];
     const last5 = sessions.slice(-5);
     const s_score = Math.round(last5.reduce((s,x) => s + (x.wpm||0), 0) / last5.length);
     const c_score = Math.round(last5.reduce((s,x) => s + (x.comp||0), 0) / last5.length);
-    const newTarget = c >= 70 ? Math.round(targetWpm * 1.05) : targetWpm;
-    setLastTarget(targetWpm);
+    const newTarget = c >= 70 ? Math.round(usedWpm * 1.05) : usedWpm;
+    setLastTarget(usedWpm);
     setNextTarget(newTarget);
     const next = { s_score, c_score, target_wpm: newTarget, sessions };
     setState(next);
@@ -231,12 +243,12 @@ export default function TrainTab({ readerWpm }) {
           <div style={{...card, marginBottom:16, padding:16}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14}}>
               <div>
-                <div style={{fontSize:13, color:'#c0c0c0'}}>Target speed</div>
-                <div style={{fontSize:11, color:'#3a3a3a', marginTop:2}}>Adapts as comprehension improves</div>
+                <div style={{fontSize:13, color:'#c0c0c0'}}>{hasBaseline ? 'Target speed' : 'Baseline test'}</div>
+                <div style={{fontSize:11, color:'#3a3a3a', marginTop:2}}>{hasBaseline ? 'Adapts as comprehension improves' : 'Starts at 250 WPM'}</div>
               </div>
               <div style={{fontSize:22, color:'#8b7fff', fontFamily:"'JetBrains Mono',monospace", fontWeight:500}}>{targetWpm} <span style={{fontSize:11,color:'#3a3a3a'}}>WPM</span></div>
             </div>
-            <button onClick={start} style={{...btnPrimary, width:'100%', fontSize:15, minHeight:48}}>Start Session</button>
+            <button onClick={start} style={{...btnPrimary, width:'100%', fontSize:15, minHeight:48}}>{hasBaseline ? 'Start Session' : 'Start Baseline Test'}</button>
           </div>
 
           {state.sessions && state.sessions.length > 0 && (
@@ -258,7 +270,14 @@ export default function TrainTab({ readerWpm }) {
       {phase === 'reading' && passage && (
         <>
           <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>{passage.title}</div>
-          <MiniReader text={passage.text} targetWpm={targetWpm} onFinish={onReaderFinish}/>
+          <div style={{...card, padding:16, marginBottom:12}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
+              <div style={{fontSize:13, color:'#c0c0c0'}}>Speed</div>
+              <div style={{fontSize:14, color:'#8b7fff', fontFamily:"'JetBrains Mono',monospace"}}>{sessionWpm} WPM</div>
+            </div>
+            <input type="range" min={100} max={600} step={10} value={sessionWpm} onChange={e=>setSessionWpm(+e.target.value)} style={{width:'100%', accentColor:'#7c6af7'}}/>
+          </div>
+          <MiniReader key={passage.id} text={passage.text} targetWpm={sessionWpm} onFinish={onReaderFinish}/>
         </>
       )}
 
