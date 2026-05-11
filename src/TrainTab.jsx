@@ -38,13 +38,14 @@ const BAKED = {
   ],
 };
 
+const BASE_STATE = { s_score:0, c_score:0, target_wpm:0, sessions:[], sessionInProgress:false, inProgress:null };
+
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    const base = { s_score:0, c_score:0, target_wpm:0, sessions:[] };
-    if (!raw) return base;
-    return { ...base, ...JSON.parse(raw) };
-  } catch { return { s_score:0, c_score:0, target_wpm:0, sessions:[] }; }
+    if (!raw) return { ...BASE_STATE };
+    return { ...BASE_STATE, ...JSON.parse(raw) };
+  } catch { return { ...BASE_STATE }; }
 }
 
 function saveState(s) {
@@ -142,7 +143,7 @@ function MiniReader({ text, targetWpm, onFinish }) {
       </div>
       <div style={{display:'flex', gap:10}}>
         <button onClick={paused ? begin : ()=>setPaused(true)} style={btnGhost}>{!started ? 'Start Reading' : (paused ? 'Resume' : 'Pause')}</button>
-        <button onClick={finish} style={btnPrimary}>Done</button>
+        <button onClick={()=>{ if (window.confirm('Are you sure? Your progress will be lost.')) finish(); }} style={btnPrimary}>Done</button>
       </div>
       <div style={{fontSize:11, color:'#3a3a3a', letterSpacing:1}}>{Math.round(targetWpm)} WPM TARGET</div>
     </div>
@@ -180,23 +181,77 @@ export default function TrainTab({ readerWpm }) {
   const hasBaseline = !!(state.sessions && state.sessions.length > 0);
   const targetWpm = hasBaseline ? (state.target_wpm || BASELINE_WPM) : BASELINE_WPM;
 
+  const patchInProgress = useCallback((patch) => {
+    setState(prev => {
+      const next = { ...prev, sessionInProgress: true, inProgress: { ...(prev.inProgress || {}), ...patch } };
+      saveState(next);
+      return next;
+    });
+  }, []);
+
+  const clearInProgress = useCallback(() => {
+    setState(prev => {
+      const next = { ...prev, sessionInProgress: false, inProgress: null };
+      saveState(next);
+      return next;
+    });
+  }, []);
+
+  const loadQuestionsFor = async (p) => {
+    setLoadingQ(true);
+    const qs = await generateQuestions(p);
+    const final = (qs && qs.length >= 3) ? qs : BAKED[p.id];
+    const blank = new Array(final.length).fill(-1);
+    setQuestions(final);
+    setAnswers(blank);
+    setLoadingQ(false);
+    patchInProgress({ questions: final, answers: blank });
+    return final;
+  };
+
   const start = async () => {
     const p = PASSAGES[Math.floor(Math.random() * PASSAGES.length)];
     setPassage(p);
     setSessionWpm(targetWpm);
-    setLoadingQ(true);
+    setActualWpm(0);
+    setComp(0);
+    setQuestions([]);
+    setAnswers([]);
     setPhase('reading');
-    const qs = await generateQuestions(p);
-    const final = (qs && qs.length >= 3) ? qs : BAKED[p.id];
-    setQuestions(final);
-    setAnswers(new Array(final.length).fill(-1));
-    setLoadingQ(false);
+    patchInProgress({ phase:'reading', passageId:p.id, sessionWpm:targetWpm, actualWpm:0, questions:null, answers:null });
+    await loadQuestionsFor(p);
+  };
+
+  const resumeSession = async () => {
+    const ip = state.inProgress;
+    if (!ip) return;
+    const p = PASSAGES.find(x => x.id === ip.passageId) || PASSAGES[0];
+    setPassage(p);
+    setSessionWpm(ip.sessionWpm || targetWpm);
+    setActualWpm(ip.actualWpm || 0);
+    setComp(0);
+    setPhase(ip.phase === 'questions' ? 'questions' : 'reading');
+    if (ip.questions && ip.questions.length) {
+      setQuestions(ip.questions);
+      setAnswers(Array.isArray(ip.answers) && ip.answers.length === ip.questions.length ? ip.answers : new Array(ip.questions.length).fill(-1));
+      setLoadingQ(false);
+    } else {
+      await loadQuestionsFor(p);
+    }
   };
 
   const onReaderFinish = useCallback((wpm) => {
     setActualWpm(wpm);
     setPhase('questions');
-  }, []);
+    patchInProgress({ phase:'questions', actualWpm:wpm });
+  }, [patchInProgress]);
+
+  const setAnswer = (qi, val) => {
+    const a = [...answers];
+    a[qi] = val;
+    setAnswers(a);
+    patchInProgress({ answers: a });
+  };
 
   const submit = () => {
     const correct = answers.reduce((acc, a, i) => acc + (a === questions[i].answer ? 1 : 0), 0);
@@ -211,13 +266,13 @@ export default function TrainTab({ readerWpm }) {
     const newTarget = c >= 70 ? Math.round(usedWpm * 1.05) : usedWpm;
     setLastTarget(usedWpm);
     setNextTarget(newTarget);
-    const next = { s_score, c_score, target_wpm: newTarget, sessions };
+    const next = { ...state, s_score, c_score, target_wpm: newTarget, sessions, sessionInProgress:false, inProgress:null };
     setState(next);
     saveState(next);
     setPhase('results');
   };
 
-  const reset = () => { setPhase('home'); setPassage(null); setQuestions([]); setAnswers([]); setActualWpm(0); setComp(0); };
+  const reset = () => { clearInProgress(); setPhase('home'); setPassage(null); setQuestions([]); setAnswers([]); setActualWpm(0); setComp(0); };
 
   const allAnswered = answers.length > 0 && answers.every(a => a !== -1);
 
@@ -243,12 +298,19 @@ export default function TrainTab({ readerWpm }) {
           <div style={{...card, marginBottom:16, padding:16}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14}}>
               <div>
-                <div style={{fontSize:13, color:'#c0c0c0'}}>{hasBaseline ? 'Target speed' : 'Baseline test'}</div>
-                <div style={{fontSize:11, color:'#3a3a3a', marginTop:2}}>{hasBaseline ? 'Adapts as comprehension improves' : 'Starts at 250 WPM'}</div>
+                <div style={{fontSize:13, color:'#c0c0c0'}}>{state.sessionInProgress ? 'Session in progress' : (hasBaseline ? 'Target speed' : 'Baseline test')}</div>
+                <div style={{fontSize:11, color:'#3a3a3a', marginTop:2}}>{state.sessionInProgress ? 'Pick up where you left off' : (hasBaseline ? 'Adapts as comprehension improves' : 'Starts at 250 WPM')}</div>
               </div>
-              <div style={{fontSize:22, color:'#8b7fff', fontFamily:"'JetBrains Mono',monospace", fontWeight:500}}>{targetWpm} <span style={{fontSize:11,color:'#3a3a3a'}}>WPM</span></div>
+              <div style={{fontSize:22, color:'#8b7fff', fontFamily:"'JetBrains Mono',monospace", fontWeight:500}}>{(state.sessionInProgress && state.inProgress?.sessionWpm) || targetWpm} <span style={{fontSize:11,color:'#3a3a3a'}}>WPM</span></div>
             </div>
-            <button onClick={start} style={{...btnPrimary, width:'100%', fontSize:15, minHeight:48}}>{hasBaseline ? 'Start Session' : 'Start Baseline Test'}</button>
+            {state.sessionInProgress && state.inProgress ? (
+              <div style={{display:'flex', flexDirection:'column', gap:10}}>
+                <button onClick={resumeSession} style={{...btnPrimary, width:'100%', fontSize:15, minHeight:48}}>Resume Session</button>
+                <button onClick={()=>{ if (window.confirm('Discard the in-progress session and start over?')) start(); }} style={{...btnGhost, width:'100%'}}>Start New Session</button>
+              </div>
+            ) : (
+              <button onClick={start} style={{...btnPrimary, width:'100%', fontSize:15, minHeight:48}}>{hasBaseline ? 'Start Session' : 'Start Baseline Test'}</button>
+            )}
           </div>
 
           {state.sessions && state.sessions.length > 0 && (
@@ -294,14 +356,14 @@ export default function TrainTab({ readerWpm }) {
                 {q.choices.map((c, ci) => {
                   const sel = answers[qi] === ci;
                   return (
-                    <button key={ci} onClick={()=>{ const a=[...answers]; a[qi]=ci; setAnswers(a); }}
+                    <button key={ci} onClick={()=>setAnswer(qi, ci)}
                       style={{textAlign:'left', padding:'12px 14px', borderRadius:10, border:'1px solid '+(sel?'#7c6af7':'#1a1a1a'), background: sel?'rgba(124,106,247,0.12)':'transparent', color: sel?'#fff':'#c0c0c0', fontSize:13, fontWeight:300, cursor:'pointer', minHeight:44}}>
                       {c}
                     </button>
                   );
                 })}
               </div>
-              <button onClick={()=>{ const a=[...answers]; a[qi]=-2; setAnswers(a); }}
+              <button onClick={()=>setAnswer(qi, -2)}
                 style={{marginTop:10, background:'transparent', border:'none', color: answers[qi]===-2?'#8b7fff':'#555', fontSize:12, fontWeight:300, cursor:'pointer', padding:'4px 2px', textDecoration: answers[qi]===-2?'none':'underline'}}>
                 {answers[qi]===-2 ? 'Skipped — counts as wrong' : "Skip / Don't know"}
               </button>
