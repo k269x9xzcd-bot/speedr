@@ -420,6 +420,7 @@ export default function App() {
   const [fetchErr, setFetchErr] = useState('');
   const [activeText, setActiveText] = useState('');
   const [activeTitle, setActiveTitle] = useState('');
+  const [activeArticleUrl, setActiveArticleUrl] = useState('');
   const [chunks, setChunks] = useState([]);
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -566,6 +567,7 @@ export default function App() {
   };
 
   const handleReadArticle = async item => {
+    setActiveArticleUrl(item.link || '');
     // Save scroll position
     if (newsScrollRef.current) setPrevNewsScroll(newsScrollRef.current.scrollTop);
     // Add to history
@@ -766,6 +768,7 @@ export default function App() {
                   <span>{Math.round(progress)}%</span>
                   {activeText&&<button onClick={e=>{e.stopPropagation();saveArticle(activeTitle,activeText,urlInput,'');}} style={{padding:'3px 10px',border:'1px solid #2a2a4a',borderRadius:10,background:'transparent',color:'#8b7fff',fontSize:11,cursor:'pointer'}}>Save</button>}
                   {activeText&&<button onClick={e=>{e.stopPropagation();navigator.clipboard?.writeText(activeText);showToast('Copied!');}} style={{padding:'3px 10px',border:'1px solid #1a1a1a',borderRadius:10,background:'transparent',color:'#555',fontSize:11,cursor:'pointer'}}>Copy</button>}
+                    {activeArticleUrl&&<a href={activeArticleUrl} target='_blank' rel='noreferrer' onClick={e=>e.stopPropagation()} style={{padding:'3px 10px',border:'1px solid #1a1a1a',borderRadius:10,color:'#555',fontSize:11,cursor:'pointer',textDecoration:'none'}}>Link</a>}
                 </div>
               </div>
 
@@ -876,11 +879,13 @@ export default function App() {
                   {library.filter(a=>!libSearch||a.title.toLowerCase().includes(libSearch.toLowerCase())).map((a,i,arr) => (
                     <div key={a.id} style={{padding:'14px 16px',borderBottom:i<arr.length-1?'1px solid #111':'none',display:'flex',gap:12,alignItems:'flex-start'}}>
                       <div style={{flex:1,minWidth:0,cursor:'pointer'}} onClick={()=>{
-                        const text = a.text;
-                        if(text){
-                          setHistory(h=>[{title:activeTitle,text:activeText},...h.slice(0,9)]);
+                        if(a.text){
+                          if(activeText) setHistory(h=>[{title:activeTitle,text:activeText},...h.slice(0,9)]);
                           setActiveTitle(a.title);
-                          setActiveText(text);
+                          setActiveText(a.text);
+                          setActiveArticleUrl(a.url||'');
+                          setChunks(tokenize(a.text,chunkSize));
+                          setIdx(0); setPlaying(false); setDone(false);
                           setTab('reader');
                         }
                       }}>
