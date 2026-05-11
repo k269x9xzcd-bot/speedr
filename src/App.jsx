@@ -881,7 +881,7 @@ export default function App() {
                         if(text){setHistory(h=>[{title:activeTitle,text:activeText},...h.slice(0,9)]);setActiveTitle(a.title);setActiveText(text);setTab('reader');}
                       }}>
                         <div style={{fontSize:14,color:'#e0e0e0',fontWeight:400,lineHeight:1.4}}>{a.title}</div>
-                        <div style={{fontSize:11,color:'#555',marginTop:4}}>{a.source&&a.source+'  -  '}{(a.word_count||0).toLocaleString()} words  -  {timeAgo(a.saved_at)}</div>
+                        <div style={{fontSize:11,color:'#555',marginTop:4}}>{[a.source, (a.word_count||0).toLocaleString()+' words', timeAgo(a.saved_at)].filter(Boolean).join(' - ')}</div>
                       </div>
                       <button onClick={()=>deleteArticle(a.id)} style={{background:'none',border:'none',color:'#2a2a2a',cursor:'pointer',fontSize:20,lineHeight:1,padding:'0 4px',flexShrink:0}}>x</button>
                     </div>
