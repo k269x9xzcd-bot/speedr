@@ -1,18 +1,34 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 
 const STORAGE_KEY = 'speedr_train';
+const TRACK_KEY = 'speedr_train_track';
 const MODEL = 'claude-haiku-4-5-20251001';
 const SPEED_MAX = 600;
 const BASELINE_WPM = 250;
 
+const SUPABASE_URL  = 'https://reojrvyczjrdaobgnrod.supabase.co';
+const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlb2pydnljempyZGFvYmducm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzAyODQsImV4cCI6MjA5NDAwNjI4NH0.RziEy75n6MS6SNl_nUqLOVRSG19TNEta9AvzrT0BB14';
+
+const TRACKS = ['All', 'Science', 'History', 'Philosophy', 'Business'];
+const TRACK_TOPICS = {
+  Science:    ['Photosynthesis','Quantum_mechanics','DNA','Black_hole','Evolution','Vaccine','Climate_change','Neuroscience'],
+  History:    ['Silk_Road','Roman_Empire','Industrial_Revolution','World_War_II','Renaissance','Mongol_Empire','Cold_War','French_Revolution'],
+  Philosophy: ['Stoicism','Utilitarianism','Epistemology','Existentialism','Game_theory','Logic','Ethics','Consciousness'],
+  Business:   ['Supply_chain','Compound_interest','Inflation','Stock_market','Entrepreneurship','Behavioral_economics','Network_effect','Venture_capital'],
+};
+function topicsForTrack(track) {
+  if (track && TRACK_TOPICS[track]) return TRACK_TOPICS[track];
+  return [...TRACK_TOPICS.Science, ...TRACK_TOPICS.History, ...TRACK_TOPICS.Philosophy, ...TRACK_TOPICS.Business];
+}
+
 const FALLBACK_PASSAGES = [
-  { id:'ocean', title:'Ocean Currents', text:
+  { id:'ocean', title:'Ocean Currents', track:'Science', text:
     "Ocean currents are massive flows of seawater that move continuously through the world's oceans, shaping climate and supporting life. They are driven by a mix of wind, temperature, salinity, and the rotation of the Earth. Surface currents, like the Gulf Stream, are mostly powered by wind and carry warm water from the equator toward the poles. Deep currents move slowly along the seafloor, pushed by differences in water density: cold, salty water sinks while warmer water rises. Together these flows form a global conveyor belt that takes nearly a thousand years to complete one full cycle. Currents transport heat, nutrients, and oxygen, making them essential to weather patterns and marine ecosystems. They also influence storm intensity and the timing of seasons in coastal regions. Disruptions caused by warming temperatures and melting ice can weaken these flows, potentially shifting weather across entire continents. Scientists track currents using satellites, buoys, and submarines, watching for signs that the planet's vast circulatory system may be slowing down faster than expected."
   },
-  { id:'silk', title:'The Silk Road', text:
+  { id:'silk', title:'The Silk Road', track:'History', text:
     "The Silk Road was not a single road but a vast network of trade routes that stretched across Asia, Europe, and Africa for more than fifteen hundred years. It linked dynasties in China to merchants in Persia, traders in Arabia, and markets in Venice, allowing goods, ideas, and even diseases to travel staggering distances. Silk, which gave the route its name, was prized in Rome and treated almost like currency, though spices, paper, jade, glass, and porcelain were equally important. Travelers crossed deserts, mountains, and bandit-controlled valleys, often joining caravans for protection during journeys that could last years. Cities like Samarkand and Kashgar grew rich as crossroads of language, religion, and cuisine. The Silk Road carried Buddhism into China, gunpowder toward Europe, and the bubonic plague into the medieval world. As ocean trade grew in the fifteenth century, the overland routes declined, but their cultural legacy remained. Many ideas we now take for granted, including printing, papermaking, and astronomy, spread along these dusty paths long before modern globalization began."
   },
-  { id:'game', title:'Game Theory', text:
+  { id:'game', title:'Game Theory', track:'Philosophy', text:
     "Game theory is the mathematical study of strategic decision-making, where the outcome for each participant depends on the choices made by others. It began as a tool for analyzing parlor games like chess and poker but quickly grew into a framework used in economics, biology, political science, and computer science. A classic example is the prisoner's dilemma, in which two suspects, unable to communicate, must decide whether to cooperate or betray each other. Although both would benefit from staying silent, each is tempted to confess to avoid the worst possible outcome, leading to a result that is rational individually but poor collectively. This tension between self-interest and group benefit appears everywhere, from arms races to climate negotiations to bidding wars. Game theorists study equilibria, points where no player can improve by changing strategy alone, and use these models to predict behavior in markets, elections, and evolutionary biology. Modern researchers also explore games with incomplete information, repeated interactions, and learning algorithms, helping artificial intelligence systems navigate competitive environments and giving policymakers new tools for managing complex human conflicts."
   },
 ];
@@ -38,34 +54,113 @@ const BAKED = {
   ],
 };
 
-const WIKI_TOPICS = [
-  'Black_hole','Photosynthesis','French_Revolution','Stoicism','Compound_interest',
-  'Quantum_entanglement','Roman_Empire','Existentialism','Supply_and_demand','Machine_learning',
-  'Plate_tectonics','Renaissance','Utilitarianism','Cryptography','Genetics',
-  'Cold_War','Game_theory','Artificial_intelligence','Volcano','Industrial_Revolution',
-  'Epistemology','Inflation','Blockchain','Immune_system','Silk_Road',
-  'General_relativity','Printing_press','Free_will','Behavioral_economics','Antibiotics',
-  'Byzantine_Empire','Plate_armour','Photoelectric_effect','Stock_market','Vaccination',
-];
+function trimToSentences(text, maxWords = 220) {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) return text.trim();
+  let slice = words.slice(0, maxWords).join(' ');
+  const lastEnd = Math.max(slice.lastIndexOf('.'), slice.lastIndexOf('!'), slice.lastIndexOf('?'));
+  if (lastEnd > 40) slice = slice.slice(0, lastEnd + 1);
+  return slice.trim();
+}
 
-async function fetchWikipediaPassage(maxTries = 6) {
-  const pool = [...WIKI_TOPICS].sort(() => Math.random() - 0.5);
+async function fetchWikipediaPassage(track, maxTries = 8) {
+  const pool = [...topicsForTrack(track)].sort(() => Math.random() - 0.5);
   for (let i = 0; i < Math.min(maxTries, pool.length); i++) {
     const topic = pool[i];
     try {
       const r = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(topic), { headers: { Accept: 'application/json' } });
       if (!r.ok) continue;
       const data = await r.json();
-      const text = ((data && data.extract) || '').trim();
-      const words = text ? text.split(/\s+/).filter(Boolean).length : 0;
+      let text = ((data && data.extract) || '').trim();
+      if (!text) continue;
+      if (text.split(/\s+/).filter(Boolean).length < 100) continue;
+      text = trimToSentences(text, 220);
+      const words = text.split(/\s+/).filter(Boolean).length;
       if (words < 100) continue;
-      return { id: 'wiki:' + topic, title: (data.title || topic.replace(/_/g, ' ')), text, words };
+      return { id: 'wiki:' + topic, title: (data.title || topic.replace(/_/g, ' ')), text, words, track: track || 'All' };
     } catch { /* try next topic */ }
   }
   return null;
 }
 
-const BASE_STATE = { s_score:0, c_score:0, target_wpm:0, sessions:[], sessionInProgress:false, inProgress:null };
+// -- Supabase (shared anonymous identity, same pattern as App.jsx) --------------
+async function getAnonToken() {
+  try {
+    const stored = localStorage.getItem('speedr_anon_token');
+    const expiry = parseInt(localStorage.getItem('speedr_anon_expiry') || '0', 10);
+    if (stored && Date.now() < expiry - 60000) return stored;
+    const res = await fetch(SUPABASE_URL + '/auth/v1/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON },
+      body: JSON.stringify({}),
+    });
+    const data = await res.json();
+    const token = data.access_token;
+    const exp = data.expires_at ? data.expires_at * 1000 : Date.now() + 3600000;
+    if (token) {
+      localStorage.setItem('speedr_anon_token', token);
+      localStorage.setItem('speedr_anon_expiry', String(exp));
+    }
+    return token || null;
+  } catch { return null; }
+}
+
+function userIdFromToken(token) {
+  try {
+    const part = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(atob(part)).sub || null;
+  } catch { return null; }
+}
+
+async function saveTrainingRemote(row) {
+  try {
+    const token = await getAnonToken();
+    if (!token) return;
+    const user_id = userIdFromToken(token);
+    if (!user_id) return;
+    await fetch(SUPABASE_URL + '/rest/v1/saved_training', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + token, 'Prefer': 'return=minimal' },
+      body: JSON.stringify({ user_id, ...row }),
+    });
+  } catch { /* non-fatal */ }
+}
+
+async function loadTrainingRemote() {
+  try {
+    const token = await getAnonToken();
+    if (!token) return [];
+    const user_id = userIdFromToken(token);
+    if (!user_id) return [];
+    const res = await fetch(SUPABASE_URL + '/rest/v1/saved_training?select=*&user_id=eq.' + encodeURIComponent(user_id) + '&order=created_at.desc&limit=5', {
+      headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + token },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch { return []; }
+}
+
+// -- XP + streaks --------------------------------------------------------------
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+function dayDiff(from, to) {
+  const a = new Date(from + 'T00:00:00Z'), b = new Date(to + 'T00:00:00Z');
+  return Math.round((b - a) / 86400000);
+}
+function computeXp(actualWpm, comp) { return Math.round((actualWpm || 0) * ((comp || 0) / 100) * 10); }
+function nextStreak(prevStreak, lastDate, today) {
+  if (!lastDate) return 1;
+  const d = dayDiff(lastDate, today);
+  if (d <= 0) return prevStreak || 1;
+  if (d === 1) return (prevStreak || 0) + 1;
+  return 1;
+}
+
+const BASE_STATE = {
+  s_score:0, c_score:0, target_wpm:0, sessions:[],
+  xp_total:0, streak_days:0, last_session_date:null,
+  sessionInProgress:false, inProgress:null,
+};
 
 function loadState() {
   try {
@@ -185,7 +280,7 @@ function MiniReader({ text, targetWpm, onFinish }) {
       <div style={{width:'100%', height:3, background:'#1a1a1a', borderRadius:2, overflow:'hidden'}}>
         <div style={{width:progress+'%', height:'100%', background:'#7c6af7', transition:'width 0.1s linear'}}/>
       </div>
-      <div style={{minHeight:88, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:"'JetBrains Mono',monospace", fontSize:'clamp(28px,7vw,44px)', fontWeight:500, letterSpacing:0.2, color:'#e8e8e8'}}>
+      <div style={{minHeight:88, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:mono, fontSize:'clamp(28px,7vw,44px)', fontWeight:500, letterSpacing:0.2, color:'#e8e8e8'}}>
         <span>{pre}</span><span style={{color:'#e05252'}}>{orp}</span><span>{post}</span>
       </div>
       <div style={{display:'flex', gap:10}}>
@@ -203,11 +298,20 @@ function ScoreBar({ label, value, max, suffix }) {
     <div style={{padding:'14px 16px', borderBottom:'1px solid #0f0f0f'}}>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8}}>
         <div style={{fontSize:13, color:'#c0c0c0', fontWeight:400}}>{label}</div>
-        <div style={{fontSize:13, color:'#e8e8e8', fontFamily:"'JetBrains Mono',monospace"}}>{value || 0}{suffix}</div>
+        <div style={{fontSize:13, color:'#e8e8e8', fontFamily:mono}}>{value || 0}{suffix}</div>
       </div>
       <div style={{height:6, background:'#0a0a0a', borderRadius:3, overflow:'hidden'}}>
         <div style={{width:pct+'%', height:'100%', background:'linear-gradient(90deg,#7c6af7,#a78bfa)', transition:'width 0.4s ease'}}/>
       </div>
+    </div>
+  );
+}
+
+function StatCard({ value, label }) {
+  return (
+    <div style={{...card, flex:1, marginBottom:0, padding:'14px 12px', textAlign:'center'}}>
+      <div style={{fontSize:22, fontFamily:mono, color:'#8b7fff', fontWeight:500}}>{value}</div>
+      <div style={{fontSize:10, color:'#3a3a3a', letterSpacing:1, marginTop:2}}>{label}</div>
     </div>
   );
 }
@@ -220,12 +324,19 @@ export default function TrainTab({ readerWpm }) {
   const [answers, setAnswers] = useState([]);
   const [actualWpm, setActualWpm] = useState(0);
   const [comp, setComp] = useState(0);
+  const [xpEarned, setXpEarned] = useState(0);
   const [lastTarget, setLastTarget] = useState(0);
   const [nextTarget, setNextTarget] = useState(0);
   const [sessionWpm, setSessionWpm] = useState(BASELINE_WPM);
+  const [track, setTrack] = useState(() => { try { return localStorage.getItem(TRACK_KEY) || 'All'; } catch { return 'All'; } });
+  const [remoteSessions, setRemoteSessions] = useState([]);
 
   const hasBaseline = !!(state.sessions && state.sessions.length > 0);
   const targetWpm = hasBaseline ? (state.target_wpm || BASELINE_WPM) : BASELINE_WPM;
+
+  useEffect(() => { if (phase === 'home') loadTrainingRemote().then(setRemoteSessions); }, [phase]);
+
+  const changeTrack = (t) => { setTrack(t); try { localStorage.setItem(TRACK_KEY, t); } catch {} };
 
   const patchInProgress = useCallback((patch) => {
     setState(prev => {
@@ -249,14 +360,15 @@ export default function TrainTab({ readerWpm }) {
     setPhase('loading');
     setActualWpm(0);
     setComp(0);
+    setXpEarned(0);
     setQuestions([]);
     setAnswers([]);
     setSessionWpm(targetWpm);
-    let p = await fetchWikipediaPassage();
+    let p = await fetchWikipediaPassage(track);
     let final = null;
     if (p) final = await generateQuestions(p);
     if (!final || final.length < 3) {
-      // No live questions for the fetched article (or no article) — use a built-in passage with its bundled questions.
+      // No live questions for the fetched article (or no article) — use a built-in passage with bundled questions.
       p = randomFallback();
       final = BAKED[p.id];
     }
@@ -278,6 +390,7 @@ export default function TrainTab({ readerWpm }) {
     setSessionWpm(ip.sessionWpm || targetWpm);
     setActualWpm(ip.actualWpm || 0);
     setComp(0);
+    setXpEarned(0);
     setQuestions(qs);
     setAnswers(Array.isArray(ip.answers) && ip.answers.length === qs.length ? ip.answers : new Array(qs.length).fill(-1));
     setPhase(ip.phase === 'questions' ? 'questions' : 'reading');
@@ -299,8 +412,10 @@ export default function TrainTab({ readerWpm }) {
   const submit = () => {
     const correct = answers.reduce((acc, a, i) => acc + (a === questions[i].answer ? 1 : 0), 0);
     const c = Math.round((correct / questions.length) * 100);
-    setComp(c);
     const usedWpm = sessionWpm;
+    const xp = computeXp(actualWpm, c);
+    setComp(c);
+    setXpEarned(xp);
     const newSession = { wpm: actualWpm, comp: c, target: usedWpm, ts: Date.now() };
     const sessions = [...(state.sessions || []), newSession];
     const last5 = sessions.slice(-5);
@@ -309,27 +424,61 @@ export default function TrainTab({ readerWpm }) {
     const newTarget = c >= 70 ? Math.round(usedWpm * 1.05) : usedWpm;
     setLastTarget(usedWpm);
     setNextTarget(newTarget);
-    const next = { ...state, s_score, c_score, target_wpm: newTarget, sessions, sessionInProgress:false, inProgress:null };
+    const today = todayStr();
+    const streak_days = nextStreak(state.streak_days, state.last_session_date, today);
+    const xp_total = (state.xp_total || 0) + xp;
+    const next = {
+      ...state, s_score, c_score, target_wpm: newTarget, sessions,
+      xp_total, streak_days, last_session_date: today,
+      sessionInProgress:false, inProgress:null,
+    };
     setState(next);
     saveState(next);
+    saveTrainingRemote({
+      passage_title: (passage && passage.title) || 'Untitled',
+      passage_track: (passage && passage.track) || track,
+      target_wpm: usedWpm,
+      actual_wpm: actualWpm,
+      comprehension: c,
+      xp_earned: xp,
+    });
     setPhase('results');
   };
 
-  const reset = () => { clearInProgress(); setPhase('home'); setPassage(null); setQuestions([]); setAnswers([]); setActualWpm(0); setComp(0); };
+  const reset = () => { clearInProgress(); setPhase('home'); setPassage(null); setQuestions([]); setAnswers([]); setActualWpm(0); setComp(0); setXpEarned(0); };
 
   const allAnswered = answers.length > 0 && answers.every(a => a !== -1);
 
+  const recent = remoteSessions.length
+    ? remoteSessions.map(r => ({
+        title: r.passage_title || 'Untitled', sub: (r.passage_track || 'All'),
+        wpm: r.actual_wpm || 0, comp: r.comprehension || 0, xp: r.xp_earned || 0,
+        date: r.created_at ? new Date(r.created_at).toLocaleDateString(undefined, { month:'short', day:'numeric' }) : '',
+      }))
+    : (state.sessions || []).slice(-5).reverse().map(s => ({
+        title: 'Training session', sub: '—',
+        wpm: s.wpm || 0, comp: s.comp || 0, xp: computeXp(s.wpm, s.comp),
+        date: s.ts ? new Date(s.ts).toLocaleDateString(undefined, { month:'short', day:'numeric' }) : '',
+      }));
+
   return (
     <div>
+      <style>{`@keyframes xpPop{0%{transform:scale(0.4);opacity:0}55%{transform:scale(1.18);opacity:1}100%{transform:scale(1);opacity:1}}`}</style>
+
       {phase === 'home' && (
         <>
+          <div style={{display:'flex', gap:12, marginBottom:16}}>
+            <StatCard value={(state.xp_total || 0).toLocaleString()} label="TOTAL XP"/>
+            <StatCard value={state.streak_days || 0} label="DAY STREAK"/>
+          </div>
+
           <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Your Scores</div>
           <div style={{...card, marginBottom:16}}>
             <ScoreBar label="Speed" value={state.s_score} max={SPEED_MAX} suffix=" WPM"/>
-            <div style={{...{padding:'14px 16px'}}}>
+            <div style={{padding:'14px 16px'}}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8}}>
                 <div style={{fontSize:13, color:'#c0c0c0', fontWeight:400}}>Comprehension</div>
-                <div style={{fontSize:13, color:'#e8e8e8', fontFamily:"'JetBrains Mono',monospace"}}>{state.c_score || 0}%</div>
+                <div style={{fontSize:13, color:'#e8e8e8', fontFamily:mono}}>{state.c_score || 0}%</div>
               </div>
               <div style={{height:6, background:'#0a0a0a', borderRadius:3, overflow:'hidden'}}>
                 <div style={{width:Math.min(100,state.c_score||0)+'%', height:'100%', background:'linear-gradient(90deg,#7c6af7,#a78bfa)', transition:'width 0.4s ease'}}/>
@@ -337,14 +486,24 @@ export default function TrainTab({ readerWpm }) {
             </div>
           </div>
 
+          <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Track</div>
+          <div style={{...card, marginBottom:16, padding:12, display:'flex', gap:6, flexWrap:'wrap'}}>
+            {TRACKS.map(t => (
+              <button key={t} onClick={()=>changeTrack(t)}
+                style={{flex:'1 1 60px', padding:'8px 8px', borderRadius:8, border:'1px solid '+(track===t?'#7c6af7':'#222'), background: track===t?'#7c6af7':'transparent', color: track===t?'#fff':'#c0c0c0', fontSize:12, fontWeight:400, cursor:'pointer', minHeight:36}}>
+                {t}
+              </button>
+            ))}
+          </div>
+
           <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Session</div>
           <div style={{...card, marginBottom:16, padding:16}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14}}>
               <div>
                 <div style={{fontSize:13, color:'#c0c0c0'}}>{state.sessionInProgress ? 'Session in progress' : (hasBaseline ? 'Target speed' : 'Baseline test')}</div>
-                <div style={{fontSize:11, color:'#3a3a3a', marginTop:2}}>{state.sessionInProgress ? 'Pick up where you left off' : (hasBaseline ? 'Adapts as comprehension improves' : 'Starts at 250 WPM')}</div>
+                <div style={{fontSize:11, color:'#3a3a3a', marginTop:2}}>{state.sessionInProgress ? 'Pick up where you left off' : (hasBaseline ? `${track} · adapts as comprehension improves` : 'Starts at 250 WPM')}</div>
               </div>
-              <div style={{fontSize:22, color:'#8b7fff', fontFamily:"'JetBrains Mono',monospace", fontWeight:500}}>{(state.sessionInProgress && state.inProgress?.sessionWpm) || targetWpm} <span style={{fontSize:11,color:'#3a3a3a'}}>WPM</span></div>
+              <div style={{fontSize:22, color:'#8b7fff', fontFamily:mono, fontWeight:500}}>{(state.sessionInProgress && state.inProgress?.sessionWpm) || targetWpm} <span style={{fontSize:11,color:'#3a3a3a'}}>WPM</span></div>
             </div>
             {state.sessionInProgress && state.inProgress ? (
               <div style={{display:'flex', flexDirection:'column', gap:10}}>
@@ -356,14 +515,20 @@ export default function TrainTab({ readerWpm }) {
             )}
           </div>
 
-          {state.sessions && state.sessions.length > 0 && (
+          {recent.length > 0 && (
             <>
-              <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Recent Sessions</div>
+              <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Recent sessions</div>
               <div style={{...card, marginBottom:16}}>
-                {state.sessions.slice(-5).reverse().map((s, i) => (
-                  <div key={i} style={{padding:'12px 16px', borderBottom: i < Math.min(4, state.sessions.length-1) ? '1px solid #0f0f0f' : 'none', display:'flex', justifyContent:'space-between', fontSize:13}}>
-                    <div style={{color:'#c0c0c0'}}>{new Date(s.ts).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</div>
-                    <div style={{color:'#e8e8e8', fontFamily:"'JetBrains Mono',monospace"}}>{s.wpm} WPM · {s.comp}%</div>
+                {recent.map((s, i) => (
+                  <div key={i} style={{padding:'12px 16px', borderBottom: i < recent.length-1 ? '1px solid #0f0f0f' : 'none', display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, fontSize:13}}>
+                    <div style={{flex:1, minWidth:0}}>
+                      <div style={{color:'#d8d8d8', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{s.title}</div>
+                      <div style={{color:'#3a3a3a', fontSize:11, marginTop:2}}>{s.sub}{s.date ? ` · ${s.date}` : ''}</div>
+                    </div>
+                    <div style={{textAlign:'right', flexShrink:0, fontFamily:mono, fontSize:12, lineHeight:1.5}}>
+                      <div style={{color:'#e8e8e8'}}>{s.wpm} WPM</div>
+                      <div style={{color:'#8b7fff'}}>{s.comp}% · +{s.xp}</div>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -376,8 +541,8 @@ export default function TrainTab({ readerWpm }) {
         <>
           <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Preparing</div>
           <div style={{...card, padding:'40px 16px', display:'flex', flexDirection:'column', alignItems:'center', gap:14}}>
-            <div style={{fontFamily:"'JetBrains Mono',monospace", fontSize:13, color:'#8b7fff', letterSpacing:1, animation:'pulse 1.2s ease-in-out infinite'}}>FETCHING PASSAGE…</div>
-            <div style={{fontSize:12, color:'#3a3a3a'}}>Pulling a fresh article and writing questions</div>
+            <div style={{fontFamily:mono, fontSize:13, color:'#8b7fff', letterSpacing:1, animation:'pulse 1.2s ease-in-out infinite'}}>FETCHING PASSAGE…</div>
+            <div style={{fontSize:12, color:'#3a3a3a'}}>{track === 'All' ? 'Pulling a fresh article and writing questions' : `Pulling a ${track.toLowerCase()} article and writing questions`}</div>
           </div>
         </>
       )}
@@ -388,7 +553,7 @@ export default function TrainTab({ readerWpm }) {
           <div style={{...card, padding:16, marginBottom:12}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
               <div style={{fontSize:13, color:'#c0c0c0'}}>Speed</div>
-              <div style={{fontSize:14, color:'#8b7fff', fontFamily:"'JetBrains Mono',monospace"}}>{sessionWpm} WPM</div>
+              <div style={{fontSize:14, color:'#8b7fff', fontFamily:mono}}>{sessionWpm} WPM</div>
             </div>
             <input type="range" min={100} max={600} step={10} value={sessionWpm} onChange={e=>setSessionWpm(+e.target.value)} style={{width:'100%', accentColor:'#7c6af7'}}/>
           </div>
@@ -432,16 +597,24 @@ export default function TrainTab({ readerWpm }) {
         <>
           <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Results</div>
           <div style={{...card, padding:20, marginBottom:16, textAlign:'center'}}>
+            <div style={{display:'flex', justifyContent:'center', marginBottom:18}}>
+              <div style={{animation:'xpPop 0.55s cubic-bezier(.2,1.4,.4,1) both', fontFamily:mono, fontWeight:500, fontSize:34, color:'#8b7fff'}}>+{xpEarned.toLocaleString()} XP</div>
+            </div>
             <div style={{display:'flex', justifyContent:'space-around', marginBottom:18}}>
               <div>
                 <div style={{fontSize:11, color:'#3a3a3a', letterSpacing:1, marginBottom:6}}>SPEED</div>
-                <div style={{fontSize:32, fontFamily:"'JetBrains Mono',monospace", color:'#8b7fff', fontWeight:500}}>{actualWpm}</div>
+                <div style={{fontSize:30, fontFamily:mono, color:'#e8e8e8', fontWeight:500}}>{actualWpm}</div>
                 <div style={{fontSize:11, color:'#3a3a3a'}}>WPM</div>
               </div>
               <div>
                 <div style={{fontSize:11, color:'#3a3a3a', letterSpacing:1, marginBottom:6}}>COMPREHENSION</div>
-                <div style={{fontSize:32, fontFamily:"'JetBrains Mono',monospace", color:'#8b7fff', fontWeight:500}}>{comp}%</div>
+                <div style={{fontSize:30, fontFamily:mono, color:'#e8e8e8', fontWeight:500}}>{comp}%</div>
                 <div style={{fontSize:11, color:'#3a3a3a'}}>{comp >= 70 ? 'great' : 'keep going'}</div>
+              </div>
+              <div>
+                <div style={{fontSize:11, color:'#3a3a3a', letterSpacing:1, marginBottom:6}}>STREAK</div>
+                <div style={{fontSize:30, fontFamily:mono, color:'#e8e8e8', fontWeight:500}}>{state.streak_days || 0}</div>
+                <div style={{fontSize:11, color:'#3a3a3a'}}>{(state.streak_days || 0) === 1 ? 'day' : 'days'}</div>
               </div>
             </div>
             <div style={{padding:'12px 14px', background:'#0a0a0a', borderRadius:10, fontSize:12, color:'#c0c0c0'}}>
@@ -456,7 +629,7 @@ export default function TrainTab({ readerWpm }) {
             <div style={{padding:'14px 16px'}}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:8}}>
                 <div style={{fontSize:13, color:'#c0c0c0'}}>Comprehension (avg)</div>
-                <div style={{fontSize:13, color:'#e8e8e8', fontFamily:"'JetBrains Mono',monospace"}}>{state.c_score || 0}%</div>
+                <div style={{fontSize:13, color:'#e8e8e8', fontFamily:mono}}>{state.c_score || 0}%</div>
               </div>
               <div style={{height:6, background:'#0a0a0a', borderRadius:3, overflow:'hidden'}}>
                 <div style={{width:Math.min(100,state.c_score||0)+'%', height:'100%', background:'linear-gradient(90deg,#7c6af7,#a78bfa)'}}/>
@@ -474,6 +647,7 @@ export default function TrainTab({ readerWpm }) {
   );
 }
 
+const mono = "'JetBrains Mono',monospace";
 const card = { background:'#111111', borderRadius:16, border:'1px solid #1a1a1a', overflow:'hidden', marginBottom:12 };
 const btnPrimary = { padding:'12px 18px', border:'none', borderRadius:12, fontSize:14, fontWeight:400, cursor:'pointer', background:'#7c6af7', color:'#fff', whiteSpace:'nowrap', flexShrink:0, minHeight:44 };
 const btnGhost = { padding:'12px 16px', border:'1px solid #1a1a1a', borderRadius:12, fontSize:14, fontWeight:300, cursor:'pointer', background:'transparent', color:'#c0c0c0', whiteSpace:'nowrap', minHeight:44 };
