@@ -189,6 +189,7 @@ function isJinaBlocked(url) { try { return JINA_BLOCKED.some(d => new URL(url).h
 function timeAgo(d) {
   if (!d) return '';
   const m = (Date.now() - new Date(d)) / 60000;
+  if (!isFinite(m) || m < 0) return '';
   if (m < 60) return Math.round(m) + 'm';
   if (m < 1440) return Math.round(m/60) + 'h';
   return Math.round(m/1440) + 'd';
@@ -654,7 +655,7 @@ export default function App() {
   return (
     <>
       <style>{GLOBAL_CSS}</style>
-      <div style={{position:'fixed',inset:0,display:'flex',flexDirection:'column',paddingTop:'env(safe-area-inset-top)',paddingLeft:'env(safe-area-inset-left)',paddingRight:'env(safe-area-inset-right)',background:'#0d0d0d',overflow:'hidden'}}>
+      <div style={{position:'fixed',inset:0,display:'flex',flexDirection:'column',paddingTop:'env(safe-area-inset-top)',paddingLeft:'env(safe-area-inset-left)',paddingRight:'env(safe-area-inset-right)',background:'#0d0d0d',overflow:'hidden',height:'100dvh'}}>
 
         {/* TOP BAR */}
         <div className={`ls-hide ui-layer${uiFading?' ui-faded':''}`} style={{flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px 10px',borderBottom:'1px solid #141414'}}>
@@ -991,7 +992,7 @@ export default function App() {
         </div>
 
         {/* BOTTOM TAB BAR */}
-        <div className={`ls-hide ui-layer${uiFading?' ui-faded':''}`} style={{flexShrink:0,display:'flex',borderTop:'1px solid #141414',background:'#0d0d0d',paddingBottom:'env(safe-area-inset-bottom)',minHeight:58}}>
+        <div className={`ls-hide ui-layer${uiFading?' ui-faded':''}`} style={{flexShrink:0,display:'flex',borderTop:'1px solid #141414',background:'#0d0d0d',paddingBottom:'env(safe-area-inset-bottom)',minHeight:58,zIndex:10}}>
           {[['reader','R','Reader'],['news','N','News'],['library','B','Library'],['settings','\u2699','Settings']].map(([id,icon,label]) => (
             <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'10px 0 8px',border:'none',background:'transparent',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,WebkitTapHighlightColor:'transparent'}}>
               <span style={{fontSize:id==='settings'?20:19,fontFamily:id==='settings'?'inherit':"'JetBrains Mono',monospace",fontWeight:id==='settings'?400:500,color:tab===id?'#8b7fff':'#3a3a3a',transition:'color 0.15s'}}>{icon}</span>
