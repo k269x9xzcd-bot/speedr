@@ -878,10 +878,10 @@ export default function App() {
                       <div style={{flex:1,minWidth:0,cursor:'pointer'}} onClick={async()=>{
                         let text=a.text;
                         if(!text&&!a.id.startsWith('local_')){setFetching(true);const full=await loadArticleTextRemote(a.id);setFetching(false);if(full)text=full.text;}
-                        if(text){saveCurrentToHistory();setActiveTitle(a.title);setActiveText(text);setTab('reader');}
+                        if(text){setHistory(h=>[{title:activeTitle,text:activeText},...h.slice(0,9)]);setActiveTitle(a.title);setActiveText(text);setTab('reader');}
                       }}>
                         <div style={{fontSize:14,color:'#e0e0e0',fontWeight:400,lineHeight:1.4}}>{a.title}</div>
-                        <div style={{fontSize:11,color:'#555',marginTop:4}}>{a.source&&a.source+' ' '}{(a.word_count||0).toLocaleString()} words ' {timeAgo(a.saved_at)}</div>
+                        <div style={{fontSize:11,color:'#555',marginTop:4}}>{a.source&&a.source+'  -  '}{(a.word_count||0).toLocaleString()} words  -  {timeAgo(a.saved_at)}</div>
                       </div>
                       <button onClick={()=>deleteArticle(a.id)} style={{background:'none',border:'none',color:'#2a2a2a',cursor:'pointer',fontSize:20,lineHeight:1,padding:'0 4px',flexShrink:0}}>x</button>
                     </div>
@@ -986,11 +986,6 @@ export default function App() {
         </div>
 
       </div>
-      {toast && (
-        <div style={{position:'fixed',bottom:80,left:'50%',transform:'translateX(-50%)',background:'#7c6af7',color:'#fff',padding:'9px 22px',borderRadius:20,fontSize:13,fontWeight:500,zIndex:300,whiteSpace:'nowrap',pointerEvents:'none',boxShadow:'0 4px 16px rgba(124,106,247,0.4)'}}>
-          {toast}
-        </div>
-      )}
       {toast && (
         <div style={{position:'fixed',bottom:80,left:'50%',transform:'translateX(-50%)',background:'#7c6af7',color:'#fff',padding:'9px 22px',borderRadius:20,fontSize:13,fontWeight:500,zIndex:300,whiteSpace:'nowrap',pointerEvents:'none',boxShadow:'0 4px 16px rgba(124,106,247,0.4)'}}>
           {toast}
