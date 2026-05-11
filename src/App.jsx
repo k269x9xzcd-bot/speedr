@@ -668,10 +668,10 @@ export default function App() {
             {tab==='news' && <button onClick={()=>setShowSources(s=>!s)} style={showSources?pillActive:pill}>{showSources?'done':'sources'}</button>}
             {tab==='reader' && (
               <button
-                onClick={()=>{ if(chunks.length){setPlaying(true);} }}
-                style={{...pill, color: chunks.length?'#8b7fff':'#333', borderColor: chunks.length?'#2a2a4a':'#1a1a1a', cursor: chunks.length?'pointer':'default'}}
+                onClick={()=>{ if(chunks.length){ if(playing){setPlaying(false);}else{if(idx>=chunks.length)setIdx(0);setPlaying(true);} } }}
+                style={{...pill, color: chunks.length?(playing?'#fff':'#8b7fff'):'#333', borderColor: chunks.length?(playing?'#7c6af7':'#2a2a4a'):'#1a1a1a', background: playing?'#7c6af7':'transparent', cursor: chunks.length?'pointer':'default'}}
               >
-                focus
+                {playing ? 'pause' : 'focus'}
               </button>
             )}
           </div>
@@ -863,32 +863,7 @@ export default function App() {
           {/* -- SETTINGS -- */}
           {tab==='library' && (
             <div key="library" className="slide-up" style={{paddingBottom:12}}>
-              <input style={{...field,marginBottom:12}} placeholder="Search saved articles..." value={libSearch} onChange={e=>setLibSearch(e.target.value)}/>
-              {libLoading&&library.length===0 ? (
-                <div style={{padding:48,textAlign:'center',color:'#333',fontSize:14,animation:'pulse 1.4s infinite'}}>Loading...</div>
-              ) : library.filter(a=>!libSearch||a.title.toLowerCase().includes(libSearch.toLowerCase())).length===0 ? (
-                <div style={{padding:48,textAlign:'center'}}>
-                  <div style={{color:'#333',fontSize:15,marginBottom:8}}>No saved articles</div>
-                  <div style={{color:'#222',fontSize:13,lineHeight:1.6}}>Articles save automatically when you read from News.</div>
-                </div>
-              ) : (
-                <div style={card}>
-                  {library.filter(a=>!libSearch||a.title.toLowerCase().includes(libSearch.toLowerCase())).map((a,i,arr) => (
-                    <div key={a.id} style={{padding:'14px 16px',borderBottom:i<arr.length-1?'1px solid #111':'none',display:'flex',gap:12,alignItems:'flex-start'}}>
-                      <div style={{flex:1,minWidth:0,cursor:'pointer'}} onClick={async()=>{
-                        let text=a.text;
-                        if(!text&&!a.id.startsWith('local_')){setFetching(true);const full=await loadArticleTextRemote(a.id);setFetching(false);if(full)text=full.text;}
-                        if(text){setHistory(h=>[{title:activeTitle,text:activeText},...h.slice(0,9)]);setActiveTitle(a.title);setActiveText(text);setTab('reader');}
-                      }}>
-                        <div style={{fontSize:14,color:'#e0e0e0',fontWeight:400,lineHeight:1.4}}>{a.title}</div>
-                        <div style={{fontSize:11,color:'#555',marginTop:4}}>{[a.source, (a.word_count||0).toLocaleString()+' words', timeAgo(a.saved_at)].filter(Boolean).join(' - ')}</div>
-                      </div>
-                      <button onClick={()=>deleteArticle(a.id)} style={{background:'none',border:'none',color:'#2a2a2a',cursor:'pointer',fontSize:20,lineHeight:1,padding:'0 4px',flexShrink:0}}>x</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {library.length>0&&<button style={{...btnGhost,width:'100%',marginTop:4}} onClick={loadLibrary}>{libLoading?'Syncing...':'Sync with cloud'}</button>}
+              <div style={{padding:48,textAlign:'center',color:'#555',fontSize:15}}>Library coming soon</div>
             </div>
           )}
 
