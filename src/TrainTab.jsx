@@ -219,7 +219,7 @@ export default function TrainTab({ readerWpm }) {
 
   const reset = () => { setPhase('home'); setPassage(null); setQuestions([]); setAnswers([]); setActualWpm(0); setComp(0); };
 
-  const allAnswered = answers.length > 0 && answers.every(a => a >= 0);
+  const allAnswered = answers.length > 0 && answers.every(a => a !== -1);
 
   return (
     <div>
@@ -301,6 +301,10 @@ export default function TrainTab({ readerWpm }) {
                   );
                 })}
               </div>
+              <button onClick={()=>{ const a=[...answers]; a[qi]=-2; setAnswers(a); }}
+                style={{marginTop:10, background:'transparent', border:'none', color: answers[qi]===-2?'#8b7fff':'#555', fontSize:12, fontWeight:300, cursor:'pointer', padding:'4px 2px', textDecoration: answers[qi]===-2?'none':'underline'}}>
+                {answers[qi]===-2 ? 'Skipped — counts as wrong' : "Skip / Don't know"}
+              </button>
             </div>
           ))}
           {!loadingQ && questions.length > 0 && (
