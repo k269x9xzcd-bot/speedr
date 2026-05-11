@@ -30,6 +30,8 @@ const ALL_FEEDS = [
   { id:'macrumors',    name:'MacRumors',          url:'https://feeds.macrumors.com/MacRumors-All',                  category:'Tech' },
   { id:'mit-tech',     name:'MIT Tech Review',    url:'https://www.technologyreview.com/feed/',                     category:'Tech' },
   { id:'verge-tech',   name:'The Verge',          url:'https://www.theverge.com/rss/index.xml',                     category:'Tech' },
+  { id:'flipboard-news',name:'Flipboard News',    url:'https://flipboard.com/topic/news.rss',                       category:'US' },
+  { id:'flipboard-tech',name:'Flipboard Tech',    url:'https://flipboard.com/topic/tech.rss',                       category:'Tech' },
 ];
 
 const CATEGORIES = ['All','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack'];
@@ -720,14 +722,7 @@ export default function App() {
                 className={landscape ? 'ls-reader' : ''}
                 style={{...card,flex:1,minHeight:landscape?0:180,cursor:'pointer',touchAction:'none',display:'flex',flexDirection:'column',marginBottom:0}}
               >
-                {/* Zone hints - portrait only, not playing */}
-                {!landscape && !playing && chunks.length > 0 && !done && (
-                  <div style={{display:'flex',position:'absolute',top:0,left:0,right:0,height:'100%',pointerEvents:'none',zIndex:1,opacity:0.04}}>
-                    <div style={{flex:1,background:'#fff',borderRadius:'16px 0 0 16px'}}/>
-                    <div style={{flex:1}}/>
-                    <div style={{flex:1,background:'#fff',borderRadius:'0 16px 16px 0'}}/>
-                  </div>
-                )}
+
 
                 <div ref={wordRef} style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 24px',position:'relative'}}>
                   {fetching ? (
