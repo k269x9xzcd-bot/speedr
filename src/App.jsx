@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import TrainTab from './TrainTab';
 
 // -- FEEDS ---------------------------------------------------------------------
 const ALL_FEEDS = [
@@ -649,7 +650,7 @@ export default function App() {
   const visibleItems = category==='All' ? feedItems : feedItems.filter(i=>i.category===category);
   const uiFading = playing && !landscape;
 
-  const bookmarkletCode = "javascript:(function(){var sel='.body.markup,article,.post-content,.article-body,.story-body,.entry-content,main,[role=main]';var el=document.querySelector(sel);var text=(el?el.innerText:document.body.innerText).trim();if(!text||text.length<100){alert('Speedr: no article text found.');return;}var w=window.open('https://k269x9xzcd-bot.github.io/speedr/','speedr');setTimeout(function(){w.postMessage({speedrText:text,speedrTitle:document.title},'*');},1800);})();";
+  const bookmarkletCode = "javascript:(function(){var sel='.body.markup,article,.post-content,.article-body,.story-body,.entry-content,main,[role=main]';var el=document.querySelector(sel);var text=(el?el.innerText:document.body.innerText).trim();if(!text||text.length<100){alert('Speedr: no article text found.');return;}var w=window.open('https://myspeedr.vercel.app/','speedr');setTimeout(function(){w.postMessage({speedrText:text,speedrTitle:document.title},'*');},1800);})();";
 
   // -- RENDER -------------------------------------------------------------------
   return (
@@ -908,6 +909,8 @@ export default function App() {
             </div>
           )}
 
+          {tab==='train' && <div className="slide-up" style={{paddingBottom:12}}><TrainTab readerWpm={wpm}/></div>}
+
           {tab==='settings' && (
             <div key="settings" className="slide-up" style={{paddingBottom:12}}>
 
@@ -993,9 +996,9 @@ export default function App() {
 
         {/* BOTTOM TAB BAR */}
         <div className={`ls-hide ui-layer${uiFading?' ui-faded':''}`} style={{flexShrink:0,display:'flex',borderTop:'1px solid #141414',background:'#0d0d0d',paddingBottom:'env(safe-area-inset-bottom)',minHeight:58,zIndex:10}}>
-          {[['reader','R','Reader'],['news','N','News'],['library','B','Library'],['settings','\u2699','Settings']].map(([id,icon,label]) => (
+          {[['reader','R','Reader'],['news','N','News'],['library','B','Library'],['train','\u26a1','Train'],['settings','\u2699','Settings']].map(([id,icon,label]) => (
             <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'10px 0 8px',border:'none',background:'transparent',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,WebkitTapHighlightColor:'transparent'}}>
-              <span style={{fontSize:id==='settings'?20:19,fontFamily:id==='settings'?'inherit':"'JetBrains Mono',monospace",fontWeight:id==='settings'?400:500,color:tab===id?'#8b7fff':'#3a3a3a',transition:'color 0.15s'}}>{icon}</span>
+              <span style={{fontSize:(id==='settings'||id==='train')?20:19,fontFamily:(id==='settings'||id==='train')?'inherit':"'JetBrains Mono',monospace",fontWeight:(id==='settings'||id==='train')?400:500,color:tab===id?'#8b7fff':'#3a3a3a',transition:'color 0.15s'}}>{icon}</span>
               <span style={{fontSize:10,fontWeight:400,letterSpacing:0.5,color:tab===id?'#8b7fff':'#3a3a3a',transition:'color 0.15s'}}>{label}</span>
             </button>
           ))}
