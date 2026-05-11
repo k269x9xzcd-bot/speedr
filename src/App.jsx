@@ -35,6 +35,8 @@ const ALL_FEEDS = [
 const CATEGORIES = ['All','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack'];
 const RSS2JSON = 'https://api.rss2json.com/v1/api.json?rss_url=';
 const ALLORIGINS = 'https://api.allorigins.win/get?url=';
+const SUPABASE_URL='https://reojrvyczjrdaobgnrod.supabase.co';
+const SUPABASE_ANON='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlb2pydnljempyZGFvYmducm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzAyODQsImV4cCI6MjA5NDAwNjI4NH0.RziEy75n6MS6SNl_nUqLOVRSG19TNEta9AvzrT0BB14';
 const SUPABASE_RSS = 'https://reojrvyczjrdaobgnrod.supabase.co/functions/v1/rss';
 const FEED_CACHE_TTL_MS = 30 * 60 * 1000;     // fresh: skip network
 const FEED_CACHE_STALE_MS = 2 * 60 * 60 * 1000; // stale: fallback if fetch fails
@@ -515,7 +517,7 @@ export default function App() {
   }, [playing, idx, chunks, baseDelay, variablePacing]);
 
   useEffect(() => {
-    if (tab === 'news') loadFeeds(activeFeeds);
+    if (tab === 'news') loadFeeds(activeFeeds); if (tab === 'library') loadLibrary();
   }, [tab]);
 
   useEffect(() => {
@@ -1025,7 +1027,7 @@ export default function App() {
 
         {/* BOTTOM TAB BAR */}
         <div className={`landscape-hide${uiFaded?' hidden':''}`} style={{flexShrink:0,display:'flex',borderTop:'1px solid #1a1a1a',background:'#0d0d0d',paddingBottom:'env(safe-area-inset-bottom)',minHeight:60}}>
-          {[['reader','R','Reader'],['news','N','News'],['settings','⚙','Settings']].map(([id,icon,label]) => (
+          {[['reader','R','Reader'],['news','N','News'],['library','B','Library'],['settings','⚙','Settings']].map(([id,icon,label]) => (
             <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'12px 0 10px',border:'none',background:'transparent',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:2,transition:'color 0.15s'}}>
               <span style={{fontSize:id==='settings'?22:20,fontFamily:id==='settings'?'inherit':"'JetBrains Mono',monospace",fontWeight:id==='settings'?400:500,color:tab===id?'#8b7fff':'#666666'}}>{icon}</span>
               {label && <span style={{fontSize:10,fontWeight:400,letterSpacing:0.5,color:tab===id?'#8b7fff':'#666666'}}>{label}</span>}
