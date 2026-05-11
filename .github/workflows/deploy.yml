@@ -1,42 +1,30 @@
-name: Deploy to GitHub Pages
+name: Update App
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      file_content:
+        description: 'Base64 encoded App.jsx'
+        required: true
+      commit_message:
+        description: 'Commit message'
+        required: true
+        default: 'Update App.jsx'
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: true
+  contents: write
 
 jobs:
-  build-and-deploy:
+  update:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install dependencies
-        run: npm install
-      - name: Build
-        run: npm run build
-      - name: Setup Pages
-        uses: actions/configure-pages@v4
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - uses: actions/checkout@v4
+      - name: Write file
+        run: echo "${{ github.event.inputs.file_content }}" | base64 -d > src/App.jsx
+      - name: Commit and push
+        run: |
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git add src/App.jsx
+          git commit -m "${{ github.event.inputs.commit_message }}"
+          git push

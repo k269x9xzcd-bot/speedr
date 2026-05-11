@@ -1,0 +1,45 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Speedr Deploy</title>
+<style>body{background:#0d0d0d;color:#e8e8e8;font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:16px;padding:24px}
+.card{background:#111;border:1px solid #1a1a1a;border-radius:16px;padding:24px;width:100%;max-width:400px;display:flex;flex-direction:column;gap:14px}
+.btn{padding:16px;border:none;border-radius:12px;font-size:15px;font-weight:500;cursor:pointer;background:#7c6af7;color:#fff;font-family:inherit}
+.btn:disabled{background:#2a2a4a;color:#555}
+.status{font-size:13px;color:#555;text-align:center}
+.ok{color:#50d89a}.err{color:#e05252}
+@keyframes p{0%,100%{opacity:1}50%{opacity:.3}}.loading{animation:p 1.4s infinite;color:#8b7fff!important}
+input{width:100%;padding:10px 12px;background:#080808;border:1px solid #1a1a1a;border-radius:10px;color:#d8d8d8;font-size:13px;font-family:inherit;outline:none;box-sizing:border-box}
+</style></head>
+<body>
+<h1 style="font-size:24px;font-weight:500">speedr</h1>
+<div style="font-size:13px;color:#555">Deploy to myspeedr.vercel.app</div>
+<div class="card">
+  <input id="msg" value="Update App.jsx" placeholder="Commit message">
+  <button class="btn" id="btn" onclick="deploy()">🚀 Deploy Now</button>
+  <div class="status" id="st">Ready</div>
+</div>
+<script>
+async function deploy(){
+  const btn=document.getElementById('btn');
+  const st=document.getElementById('st');
+  const msg=document.getElementById('msg').value||'Update App.jsx';
+  btn.disabled=true;
+  st.className='status loading';st.textContent='Fetching latest build...';
+  try{
+    const r1=await fetch('https://reojrvyczjrdaobgnrod.supabase.co/rest/v1/deploy_queue?status=eq.pending&order=created_at.desc&limit=1',{
+      headers:{'apikey':'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlb2pydnljempyZGFvYmducm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzAyODQsImV4cCI6MjA5NDAwNjI4NH0.RziEy75n6MS6SNl_nUqLOVRSG19TNEta9AvzrT0BB14','Authorization':'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlb2pydnljempyZGFvYmducm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzAyODQsImV4cCI6MjA5NDAwNjI4NH0.RziEy75n6MS6SNl_nUqLOVRSG19TNEta9AvzrT0BB14'}
+    });
+    const rows=await r1.json();
+    if(!rows.length||!rows[0].file_content){throw new Error('No pending deploy in queue');}
+    st.textContent='Triggering deployment...';
+    const r2=await fetch('https://reojrvyczjrdaobgnrod.supabase.co/functions/v1/github-dispatch',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-speedr-key':'speedr-deploy-2026'},
+      body:JSON.stringify({file_content:rows[0].file_content,commit_message:msg,file_path:'src/App.jsx'})
+    });
+    const d=await r2.json();
+    if(d.status==='ok'){
+      st.className='status ok';st.textContent='Triggered! Live in ~60s at myspeedr.vercel.app';
+    }else{throw new Error(d.message||'Dispatch failed');}
+  }catch(e){st.className='status err';st.textContent='Error: '+e.message;}
+  btn.disabled=false;
+}
+</script></body></html>
