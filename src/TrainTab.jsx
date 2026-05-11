@@ -5,7 +5,7 @@ const MODEL = 'claude-haiku-4-5-20251001';
 const SPEED_MAX = 600;
 const BASELINE_WPM = 250;
 
-const PASSAGES = [
+const FALLBACK_PASSAGES = [
   { id:'ocean', title:'Ocean Currents', text:
     "Ocean currents are massive flows of seawater that move continuously through the world's oceans, shaping climate and supporting life. They are driven by a mix of wind, temperature, salinity, and the rotation of the Earth. Surface currents, like the Gulf Stream, are mostly powered by wind and carry warm water from the equator toward the poles. Deep currents move slowly along the seafloor, pushed by differences in water density: cold, salty water sinks while warmer water rises. Together these flows form a global conveyor belt that takes nearly a thousand years to complete one full cycle. Currents transport heat, nutrients, and oxygen, making them essential to weather patterns and marine ecosystems. They also influence storm intensity and the timing of seasons in coastal regions. Disruptions caused by warming temperatures and melting ice can weaken these flows, potentially shifting weather across entire continents. Scientists track currents using satellites, buoys, and submarines, watching for signs that the planet's vast circulatory system may be slowing down faster than expected."
   },
@@ -37,6 +37,33 @@ const BAKED = {
     { q:'Which is NOT mentioned as a use of modern game theory?', choices:['AI competitive environments','Evolutionary biology','Climate negotiations','Plate tectonics'], answer:3 },
   ],
 };
+
+const WIKI_TOPICS = [
+  'Black_hole','Photosynthesis','French_Revolution','Stoicism','Compound_interest',
+  'Quantum_entanglement','Roman_Empire','Existentialism','Supply_and_demand','Machine_learning',
+  'Plate_tectonics','Renaissance','Utilitarianism','Cryptography','Genetics',
+  'Cold_War','Game_theory','Artificial_intelligence','Volcano','Industrial_Revolution',
+  'Epistemology','Inflation','Blockchain','Immune_system','Silk_Road',
+  'General_relativity','Printing_press','Free_will','Behavioral_economics','Antibiotics',
+  'Byzantine_Empire','Plate_armour','Photoelectric_effect','Stock_market','Vaccination',
+];
+
+async function fetchWikipediaPassage(maxTries = 6) {
+  const pool = [...WIKI_TOPICS].sort(() => Math.random() - 0.5);
+  for (let i = 0; i < Math.min(maxTries, pool.length); i++) {
+    const topic = pool[i];
+    try {
+      const r = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(topic), { headers: { Accept: 'application/json' } });
+      if (!r.ok) continue;
+      const data = await r.json();
+      const text = ((data && data.extract) || '').trim();
+      const words = text ? text.split(/\s+/).filter(Boolean).length : 0;
+      if (words < 100) continue;
+      return { id: 'wiki:' + topic, title: (data.title || topic.replace(/_/g, ' ')), text, words };
+    } catch { /* try next topic */ }
+  }
+  return null;
+}
 
 const BASE_STATE = { s_score:0, c_score:0, target_wpm:0, sessions:[], sessionInProgress:false, inProgress:null };
 
@@ -173,7 +200,6 @@ export default function TrainTab({ readerWpm }) {
   const [answers, setAnswers] = useState([]);
   const [actualWpm, setActualWpm] = useState(0);
   const [comp, setComp] = useState(0);
-  const [loadingQ, setLoadingQ] = useState(false);
   const [lastTarget, setLastTarget] = useState(0);
   const [nextTarget, setNextTarget] = useState(0);
   const [sessionWpm, setSessionWpm] = useState(BASELINE_WPM);
@@ -197,47 +223,44 @@ export default function TrainTab({ readerWpm }) {
     });
   }, []);
 
-  const loadQuestionsFor = async (p) => {
-    setLoadingQ(true);
-    const qs = await generateQuestions(p);
-    const final = (qs && qs.length >= 3) ? qs : BAKED[p.id];
-    const blank = new Array(final.length).fill(-1);
-    setQuestions(final);
-    setAnswers(blank);
-    setLoadingQ(false);
-    patchInProgress({ questions: final, answers: blank });
-    return final;
-  };
+  const randomFallback = () => FALLBACK_PASSAGES[Math.floor(Math.random() * FALLBACK_PASSAGES.length)];
 
   const start = async () => {
-    const p = PASSAGES[Math.floor(Math.random() * PASSAGES.length)];
-    setPassage(p);
-    setSessionWpm(targetWpm);
+    setPhase('loading');
     setActualWpm(0);
     setComp(0);
     setQuestions([]);
     setAnswers([]);
+    setSessionWpm(targetWpm);
+    let p = await fetchWikipediaPassage();
+    let final = null;
+    if (p) final = await generateQuestions(p);
+    if (!final || final.length < 3) {
+      // No live questions for the fetched article (or no article) — use a built-in passage with its bundled questions.
+      p = randomFallback();
+      final = BAKED[p.id];
+    }
+    const blank = new Array(final.length).fill(-1);
+    setPassage(p);
+    setQuestions(final);
+    setAnswers(blank);
     setPhase('reading');
-    patchInProgress({ phase:'reading', passageId:p.id, sessionWpm:targetWpm, actualWpm:0, questions:null, answers:null });
-    await loadQuestionsFor(p);
+    patchInProgress({ phase:'reading', passage:p, sessionWpm:targetWpm, actualWpm:0, questions:final, answers:blank });
   };
 
-  const resumeSession = async () => {
+  const resumeSession = () => {
     const ip = state.inProgress;
     if (!ip) return;
-    const p = PASSAGES.find(x => x.id === ip.passageId) || PASSAGES[0];
+    const p = ip.passage || (ip.passageId && FALLBACK_PASSAGES.find(x => x.id === ip.passageId)) || randomFallback();
+    const qs = (ip.questions && ip.questions.length) ? ip.questions : (BAKED[p.id] || null);
+    if (!qs) { start(); return; }
     setPassage(p);
     setSessionWpm(ip.sessionWpm || targetWpm);
     setActualWpm(ip.actualWpm || 0);
     setComp(0);
+    setQuestions(qs);
+    setAnswers(Array.isArray(ip.answers) && ip.answers.length === qs.length ? ip.answers : new Array(qs.length).fill(-1));
     setPhase(ip.phase === 'questions' ? 'questions' : 'reading');
-    if (ip.questions && ip.questions.length) {
-      setQuestions(ip.questions);
-      setAnswers(Array.isArray(ip.answers) && ip.answers.length === ip.questions.length ? ip.answers : new Array(ip.questions.length).fill(-1));
-      setLoadingQ(false);
-    } else {
-      await loadQuestionsFor(p);
-    }
   };
 
   const onReaderFinish = useCallback((wpm) => {
@@ -329,9 +352,19 @@ export default function TrainTab({ readerWpm }) {
         </>
       )}
 
+      {phase === 'loading' && (
+        <>
+          <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Preparing</div>
+          <div style={{...card, padding:'40px 16px', display:'flex', flexDirection:'column', alignItems:'center', gap:14}}>
+            <div style={{fontFamily:"'JetBrains Mono',monospace", fontSize:13, color:'#8b7fff', letterSpacing:1, animation:'pulse 1.2s ease-in-out infinite'}}>FETCHING PASSAGE…</div>
+            <div style={{fontSize:12, color:'#3a3a3a'}}>Pulling a fresh article and writing questions</div>
+          </div>
+        </>
+      )}
+
       {phase === 'reading' && passage && (
         <>
-          <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>{passage.title}</div>
+          <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>{passage.title}{passage.words ? ` · ${passage.words} words` : ''}</div>
           <div style={{...card, padding:16, marginBottom:12}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
               <div style={{fontSize:13, color:'#c0c0c0'}}>Speed</div>
@@ -346,10 +379,7 @@ export default function TrainTab({ readerWpm }) {
       {phase === 'questions' && (
         <>
           <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Comprehension Check</div>
-          {loadingQ && (
-            <div style={{...card, padding:16, marginBottom:12, color:'#c0c0c0', fontSize:13}}>Generating questions…</div>
-          )}
-          {!loadingQ && questions.map((q, qi) => (
+          {questions.map((q, qi) => (
             <div key={qi} style={{...card, padding:16, marginBottom:12}}>
               <div style={{fontSize:14, color:'#e8e8e8', marginBottom:12, lineHeight:1.5}}>{qi+1}. {q.q}</div>
               <div style={{display:'flex', flexDirection:'column', gap:8}}>
@@ -369,7 +399,7 @@ export default function TrainTab({ readerWpm }) {
               </button>
             </div>
           ))}
-          {!loadingQ && questions.length > 0 && (
+          {questions.length > 0 && (
             <button onClick={submit} disabled={!allAnswered}
               style={{...btnPrimary, width:'100%', fontSize:15, minHeight:48, opacity: allAnswered?1:0.45, marginTop:4}}>
               Submit Answers
