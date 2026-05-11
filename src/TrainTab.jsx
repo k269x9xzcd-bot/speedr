@@ -79,7 +79,32 @@ function saveState(s) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch {}
 }
 
+function parseQuestions(text) {
+  try {
+    const m = (text || '').match(/\[[\s\S]*\]/);
+    if (!m) return null;
+    const arr = JSON.parse(m[0]);
+    if (!Array.isArray(arr)) return null;
+    const out = arr.filter(x => x && typeof x.q === 'string' && Array.isArray(x.choices) && x.choices.length >= 2 && Number.isInteger(x.answer));
+    return out.length >= 3 ? out : null;
+  } catch { return null; }
+}
+
 async function generateQuestions(passage) {
+  // Preferred path: serverless proxy that keeps the Anthropic key server-side.
+  try {
+    const r = await fetch('/api/questions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: passage.text }),
+    });
+    if (r.ok) {
+      const data = await r.json();
+      if (Array.isArray(data && data.questions) && data.questions.length >= 3) return data.questions;
+    }
+  } catch { /* proxy unavailable (e.g. plain `vite dev`) — fall back to direct mode */ }
+
+  // Fallback: direct browser call using a locally-stored key (useful for local dev).
   const key = localStorage.getItem('anthropic_key') || localStorage.getItem('speedr_anthropic_key');
   if (!key) return null;
   try {
@@ -102,12 +127,7 @@ async function generateQuestions(passage) {
     });
     if (!r.ok) return null;
     const data = await r.json();
-    const text = data?.content?.[0]?.text || '';
-    const m = text.match(/\[[\s\S]*\]/);
-    if (!m) return null;
-    const arr = JSON.parse(m[0]);
-    if (!Array.isArray(arr) || arr.length < 1) return null;
-    return arr.filter(x => x && typeof x.q === 'string' && Array.isArray(x.choices) && Number.isInteger(x.answer));
+    return parseQuestions(data && data.content && data.content[0] && data.content[0].text);
   } catch { return null; }
 }
 
