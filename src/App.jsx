@@ -649,7 +649,7 @@ export default function App() {
   const visibleItems = category==='All' ? feedItems : feedItems.filter(i=>i.category===category);
   const uiFading = playing && !landscape;
 
-  const bookmarkletCode = "javascript:(function(){var sel='.body.markup,article,.post-content,.article-body,.story-body,.entry-content,main,[role=main]';var el=document.querySelector(sel);var text=(el?el.innerText:document.body.innerText).trim();if(!text||text.length<100){alert('Speedr: no article text found.');return;}var w=window.open('https://k269x9xzcd-bot.github.io/speedr/','speedr');setTimeout(function(){w.postMessage({speedrText:text,speedrTitle:document.title},'*');},1800);})();";
+  const bookmarkletCode = "javascript:(function(){var sel='.body.markup,article,.post-content,.article-body,.story-body,.entry-content,main,[role=main]';var el=document.querySelector(sel);var text=(el?el.innerText:document.body.innerText).trim();if(!text||text.length<100){alert('Speedr: no article text found.');return;}var w=window.open('https://k269x9xzcd-bot.myspeedr.vercel.app','speedr');setTimeout(function(){w.postMessage({speedrText:text,speedrTitle:document.title},'*');},1800);})();";
 
   // -- RENDER -------------------------------------------------------------------
   return (
