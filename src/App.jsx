@@ -53,6 +53,113 @@ const CACHE_KEY    = 'speedr_feed_cache';
 const CACHE_TS_KEY = 'speedr_feed_ts';
 const CACHE_TTL    = 30 * 60 * 1000;
 
+const PINNED_ARTICLES = [
+  {
+    id: 'pinned_rsvp_science',
+    title: 'What is RSVP Reading?',
+    source: 'Speedr Guide',
+    word_count: 280,
+    saved_at: '2020-01-01T00:00:00.000Z',
+    pinned: true,
+    text: `Rapid Serial Visual Presentation, or RSVP, is a reading method that displays words one at a time in a fixed position on screen. Instead of moving your eyes across a line of text, the text comes to you. This eliminates the single biggest time cost in traditional reading: saccades.
+
+Saccades are the rapid eye movements your eyes make as they jump from word to word across a page. Research shows that the average reader spends nearly 80% of reading time on eye movement and repositioning, not on actual comprehension. RSVP removes that overhead entirely.
+
+The technique was first studied seriously in the 1970s and gained mainstream attention when apps like Spritz and Spreeder demonstrated that ordinary readers could comfortably read at 400 to 600 words per minute with no loss of comprehension, compared to an average silent reading speed of around 250 words per minute.
+
+Speedr uses a refinement called ORP, or Optimal Recognition Point. Research by Spritz Technologies found that each word has a specific letter where the eye naturally wants to focus to recognize the whole word fastest. Speedr highlights that letter in red to anchor your gaze, reducing the cognitive effort of processing each word.
+
+Variable pacing is another key feature. Speedr slows slightly at punctuation and sentence boundaries, mimicking the natural rhythm of speech. This preserves comprehension at higher speeds by giving your brain the same structural cues it gets when listening.
+
+Start at 250 to 300 WPM and read a few articles before pushing the speed up. Most users find a comfortable ceiling around 450 to 550 WPM with good comprehension. The Train tab gives you a structured way to measure and improve both speed and comprehension over time.
+
+Studies published in Psychological Science and Reading Research Quarterly confirm that with regular practice, RSVP readers maintain comprehension scores equivalent to traditional readers at significantly higher speeds. The key is consistency. Even ten minutes of daily practice produces measurable improvement within two weeks.`
+  },
+  {
+    id: 'pinned_how_to_read',
+    title: 'How to Use the Reader',
+    source: 'Speedr Guide',
+    word_count: 220,
+    saved_at: '2020-01-01T00:00:00.000Z',
+    pinned: true,
+    text: `The Speedr reader is designed for one-handed use on your phone. Here is how everything works.
+
+To start reading, press and hold anywhere in the large dark reading area in the middle of the screen. Words will begin flowing as long as you hold. Release to pause. This hold-to-read mechanic means you are always in control and never lose your place.
+
+The left 20% of the reader is a rewind zone. Press and hold there to move backward through the text at your current WPM speed. A single tap steps back one word. Use this when you lose a thread and want to catch a sentence you missed.
+
+The right 30% of the reader is a fast forward zone. Press and hold to advance quickly, or tap once to step forward one word. Use this to skim past sections you already know.
+
+The progress bar at the bottom of the reading area shows how far through the article you are. The stats row below it shows total word count, estimated minutes remaining, and percentage complete.
+
+The WPM slider at the bottom controls your reading speed. You can adjust it mid-article. Most people start around 280 and work up over time.
+
+Tap Save to store the article in your Library. Tap Copy to copy the full text. Tap Link to open the original source in your browser.
+
+When you finish an article from the News tab, a Back button appears in the top left to return you to your feed.
+
+The Focus button in the top right starts and pauses reading as an alternative to holding.`
+  },
+  {
+    id: 'pinned_bookmarklet',
+    title: 'Using the Bookmarklet',
+    source: 'Speedr Guide',
+    word_count: 180,
+    saved_at: '2020-01-01T00:00:00.000Z',
+    pinned: true,
+    text: `The bookmarklet lets you send any article from Safari directly into Speedr, including paywalled articles you are already logged into. Here is how to set it up.
+
+Open Speedr and go to Settings. Scroll to the Bookmarklet section and tap Copy Bookmarklet Code.
+
+Now open Safari and navigate to any webpage. Tap the Share button at the bottom of the screen, then tap Add Bookmark. Save it with a name like Read in Speedr.
+
+Next, open your bookmarks in Safari, find the bookmark you just created, and tap Edit. Delete the URL that is there and paste the bookmarklet code you copied from Speedr. Save it.
+
+To use it: open any article in Safari, open your bookmarks, and tap Read in Speedr. The app will open automatically and the article text will load into the reader, ready to go.
+
+The bookmarklet is smart about extraction. It looks for the main article body first, pulling only paragraph text and skipping navigation menus, footers, ads, and sidebars. This means you get clean readable text even on complex news sites.
+
+It works on any site where you can read the article in Safari, including publications behind paywalls where you have a subscription.`
+  },
+  {
+    id: 'pinned_news_train',
+    title: 'News & Train Tabs',
+    source: 'Speedr Guide',
+    word_count: 190,
+    saved_at: '2020-01-01T00:00:00.000Z',
+    pinned: true,
+    text: `The News tab aggregates articles from over 30 RSS sources across categories including US news, world news, politics, business, tech, health, science, and local New York coverage. You can also add any Substack or RSS feed you follow.
+
+Tap the category pills at the top to filter by topic. Each article shows the source name and how long ago it was published. Tap any article to fetch the full text and load it into the reader automatically.
+
+To manage your sources, tap Sources in the top right. Toggle individual feeds on or off. Green means the feed is working, red means it failed on the last refresh. Tap Apply and Refresh to reload with your updated selection.
+
+To add a custom RSS feed or Substack, scroll to the bottom of the Sources panel and paste the feed URL. Most Substack publications have a feed at their URL slash feed.
+
+The Train tab is a structured speed reading practice environment. Each session fetches a fresh Wikipedia article in your chosen topic track and generates four comprehension questions using AI. Your target WPM adapts automatically based on your comprehension scores. Hit 70% or above and your next session speeds up by 5%.
+
+XP is awarded based on your speed and comprehension combined. Your streak counter tracks consecutive days of practice. All sessions are saved to the cloud so your progress persists across devices.`
+  },
+];
+
+const ONBOARDING_SLIDES = [
+  {
+    title: 'Welcome to Speedr',
+    body: 'Speedr uses RSVP — Rapid Serial Visual Presentation — to help you read faster by bringing words to your eyes instead of moving your eyes across a page. Most readers see 2–3x speed improvements with no loss of comprehension.',
+    emoji: '⚡',
+  },
+  {
+    title: 'The Science',
+    body: 'Traditional reading wastes 80% of your time on eye movement. RSVP eliminates that. The red letter in each word marks the Optimal Recognition Point — the spot your brain uses to identify the word fastest.',
+    emoji: '🧠',
+  },
+  {
+    title: 'Get Started',
+    body: 'Hold anywhere in the reading area to read. The left edge rewinds, the right edge fast-forwards. Browse News for articles, or use the bookmarklet to read anything from Safari. The Train tab tracks your progress.',
+    emoji: '📖',
+  },
+];
+
 const DEFAULT_SETTINGS = {
   wpm: 280, chunkSize: 2, peripheralBefore: 0, peripheralAfter: 0,
   orpOn: true, orpColor: '#e05252', fontSize: 'medium',
@@ -430,6 +537,8 @@ export default function App() {
   const [activeText, setActiveText] = useState('');
   const [activeTitle, setActiveTitle] = useState('');
   const [activeArticleUrl, setActiveArticleUrl] = useState('');
+  const [showOnboarding, setShowOnboarding] = useState(() => !localStorage.getItem('speedr_onboarded'));
+  const [onboardSlide, setOnboardSlide] = useState(0);
   const [chunks, setChunks] = useState([]);
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -486,6 +595,14 @@ export default function App() {
     setChunks(c); setIdx(0); setPlaying(false); setDone(false);
     setActiveText(clean); setActiveTitle(title);
   }, [chunkSize]);
+
+  const finishOnboarding = () => {
+    localStorage.setItem('speedr_onboarded', '1');
+    setShowOnboarding(false);
+    const article = PINNED_ARTICLES[0];
+    loadText(article.text, article.title);
+    setTab('reader');
+  };
 
   useEffect(() => {
     if (activeText) { setChunks(tokenize(activeText, chunkSize)); setIdx(0); setPlaying(false); setDone(false); }
@@ -891,6 +1008,20 @@ export default function App() {
                 value={libSearch}
                 onChange={e=>setLibSearch(e.target.value)}
               />
+              <div style={{marginBottom:12}}>
+                <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Getting Started</div>
+                <div style={{background:'#0f0e1a',borderRadius:16,border:'1px solid #2a2040',overflow:'hidden',marginBottom:12}}>
+                  {PINNED_ARTICLES.map((a,i) => (
+                    <div key={a.id} onClick={()=>{ loadText(a.text, a.title); setActiveArticleUrl(''); setTab('reader'); }} style={{padding:'14px 16px',borderBottom:i<PINNED_ARTICLES.length-1?'1px solid #1a1830':'none',display:'flex',gap:12,alignItems:'center',cursor:'pointer'}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:14,color:'#c0b8ff',fontWeight:400,lineHeight:1.4}}>{a.title}</div>
+                        <div style={{fontSize:11,color:'#4a4060',marginTop:3}}>{a.word_count} words · Speedr Guide</div>
+                      </div>
+                      <div style={{color:'#3a3060',fontSize:16,flexShrink:0}}>›</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
               {libLoading && library.length===0 ? (
                 <div style={{padding:48,textAlign:'center',color:'#333',fontSize:14,animation:'pulse 1.4s infinite'}}>Loading...</div>
               ) : library.filter(a=>!libSearch||a.title.toLowerCase().includes(libSearch.toLowerCase())).length===0 ? (
@@ -999,6 +1130,13 @@ export default function App() {
                 </div>
               </div>
 
+              <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Help</div>
+              <div style={{...card,marginBottom:16}}>
+                <div style={{padding:16}}>
+                  <button onClick={()=>{setOnboardSlide(0);setShowOnboarding(true);}} style={{width:'100%',padding:'13px',border:'1px solid #2a2a4a',borderRadius:12,fontSize:14,fontWeight:400,cursor:'pointer',background:'transparent',color:'#8b7fff'}}>Show Welcome Guide</button>
+                </div>
+              </div>
+
               {/* Reading history */}
               {history.length > 0 && <>
                 <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Recent</div>
@@ -1027,6 +1165,28 @@ export default function App() {
         </div>
 
       </div>
+      {showOnboarding && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.85)',zIndex:500,display:'flex',alignItems:'flex-end',justifyContent:'center',padding:'0 0 env(safe-area-inset-bottom)'}}>
+          <div style={{background:'#111',borderRadius:'24px 24px 0 0',border:'1px solid #1a1a1a',width:'100%',maxWidth:480,padding:'32px 24px 24px',display:'flex',flexDirection:'column',gap:24}}>
+            <div style={{textAlign:'center'}}>
+              <div style={{fontSize:48,marginBottom:16}}>{ONBOARDING_SLIDES[onboardSlide].emoji}</div>
+              <div style={{fontSize:20,fontWeight:500,color:'#f0f0f0',marginBottom:12}}>{ONBOARDING_SLIDES[onboardSlide].title}</div>
+              <div style={{fontSize:14,color:'#888',lineHeight:1.7}}>{ONBOARDING_SLIDES[onboardSlide].body}</div>
+            </div>
+            <div style={{display:'flex',justifyContent:'center',gap:8}}>
+              {ONBOARDING_SLIDES.map((_,i) => (
+                <div key={i} style={{width:6,height:6,borderRadius:3,background:i===onboardSlide?'#7c6af7':'#2a2a2a',transition:'background 0.2s'}}/>
+              ))}
+            </div>
+            {onboardSlide < ONBOARDING_SLIDES.length - 1 ? (
+              <button onClick={()=>setOnboardSlide(s=>s+1)} style={{width:'100%',padding:'16px',border:'none',borderRadius:14,fontSize:15,fontWeight:500,cursor:'pointer',background:'#7c6af7',color:'#fff'}}>Next</button>
+            ) : (
+              <button onClick={finishOnboarding} style={{width:'100%',padding:'16px',border:'none',borderRadius:14,fontSize:15,fontWeight:500,cursor:'pointer',background:'#7c6af7',color:'#fff'}}>Start Reading</button>
+            )}
+            <button onClick={finishOnboarding} style={{background:'none',border:'none',color:'#333',fontSize:13,cursor:'pointer',padding:0}}>Skip</button>
+          </div>
+        </div>
+      )}
       {toast && (
         <div style={{position:'fixed',bottom:80,left:'50%',transform:'translateX(-50%)',background:'#7c6af7',color:'#fff',padding:'9px 22px',borderRadius:20,fontSize:13,fontWeight:500,zIndex:300,whiteSpace:'nowrap',pointerEvents:'none',boxShadow:'0 4px 16px rgba(124,106,247,0.4)'}}>
           {toast}
