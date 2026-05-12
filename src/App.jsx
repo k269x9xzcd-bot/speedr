@@ -1082,7 +1082,7 @@ export default function App() {
             {tab==='reader' && activeTitle && prevNewsScroll > 0 && (
               <button onClick={goBackToNews} style={{background:'none',border:'none',color:'#8b7fff',cursor:'pointer',fontSize:20,padding:'0 4px 0 0',lineHeight:1}}>{'<'}</button>
             )}
-            <img src="/icon-192.png" alt="speedr" style={{height:28, width:'auto', borderRadius:6}}/>
+            <img src="/icon-192.png" alt="speedr" style={{height:44, width:'auto', borderRadius:10}}/>
             {activeTitle && tab==='reader' && (
               <span style={{fontSize:12,color:'#444',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{activeTitle}</span>
             )}
