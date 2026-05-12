@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import TrainTab from './TrainTab';
 
 function decodeHtmlEntities(str) {
+  if (!str) return str;
   const txt = document.createElement('textarea');
   txt.innerHTML = str;
   return txt.value;
@@ -220,7 +221,7 @@ async function fetchViaSupabaseArticle(url) {
   if (!res.ok) throw new Error('Supabase ' + res.status);
   const data = await res.json();
   if (!data.text || data.words < 100) throw new Error('Too short: ' + data.words + 'w');
-  return data.text;
+  return decodeHtmlEntities(data.text);
 }
 
 async function fetchViaJina(url) {
@@ -233,7 +234,7 @@ async function fetchViaJina(url) {
   const text = await res.text();
   const clean = await stripJinaHeaders(text);
   if (clean.length < 200) throw new Error('Too short');
-  return clean;
+  return decodeHtmlEntities(clean);
 }
 
 async function fetchViaAllOrigins(url) {
@@ -245,10 +246,10 @@ async function fetchViaAllOrigins(url) {
   doc.querySelectorAll('script,style,noscript,nav,footer,header,aside,form,.nav,.footer,.sidebar,.ad,.social,.paywall,iframe').forEach(n=>n.remove());
   for (const sel of ['article','main','[role=main]','.article-body','.post-content','.entry-content','.story-body','.body.markup']) {
     const el = doc.querySelector(sel);
-    if (el) { const paras = Array.from(el.querySelectorAll('p')).map(p=>p.textContent.trim()).filter(t=>t.length>40); if (paras.length>2) return paras.join('\n\n'); }
+    if (el) { const paras = Array.from(el.querySelectorAll('p')).map(p=>p.textContent.trim()).filter(t=>t.length>40); if (paras.length>2) return decodeHtmlEntities(paras.join('\n\n')); }
   }
   const allParas = Array.from(doc.querySelectorAll('p')).map(p=>p.textContent.trim()).filter(t=>t.length>50);
-  if (allParas.length > 2) return allParas.join('\n\n');
+  if (allParas.length > 2) return decodeHtmlEntities(allParas.join('\n\n'));
   throw new Error('No paragraphs');
 }
 
@@ -273,7 +274,7 @@ function parseRSSXML(xml, feed) {
     const link = isAtom ? (item.querySelector('link[rel=alternate]')?.getAttribute('href') || item.querySelector('link')?.getAttribute('href') || '') : get('link');
     const desc = (get('description') || get('summary')).replace(/<[^>]+>/g,'').trim();
     const full = (get('content') || '').replace(/<[^>]+>/g,'').trim();
-    return { title, link, description:desc.slice(0,200), fullContent:full.length>desc.length?full:'', pubDate:get('pubDate')||get('published')||get('updated')||'', source:feed.name, category:feed.category, feedId:feed.id };
+    return { title:decodeHtmlEntities(title), link, description:decodeHtmlEntities(desc.slice(0,200)), fullContent:decodeHtmlEntities(full.length>desc.length?full:''), pubDate:get('pubDate')||get('published')||get('updated')||'', source:feed.name, category:feed.category, feedId:feed.id };
   }).filter(i=>i.title);
 }
 
