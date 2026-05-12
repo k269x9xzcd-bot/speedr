@@ -1,30 +1,8 @@
-name: Update App
-
-on:
-  workflow_dispatch:
-    inputs:
-      file_content:
-        description: 'Base64 encoded App.jsx'
-        required: true
-      commit_message:
-        description: 'Commit message'
-        required: true
-        default: 'Update App.jsx'
-
-permissions:
-  contents: write
-
+# Deploys handled by Vercel auto-deploy on push to main.
+name: Placeholder
+on: workflow_dispatch
 jobs:
-  update:
+  noop:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Write file
-        run: echo "${{ github.event.inputs.file_content }}" | base64 -d > src/App.jsx
-      - name: Commit and push
-        run: |
-          git config user.email "action@github.com"
-          git config user.name "GitHub Action"
-          git add src/App.jsx
-          git commit -m "${{ github.event.inputs.commit_message }}"
-          git push
+      - run: echo "Deploys handled by Vercel."

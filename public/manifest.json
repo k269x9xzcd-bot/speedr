@@ -1,13 +1,1 @@
-{
-  "name": "Speedr",
-  "short_name": "Speedr",
-  "description": "RSVP speed reader for articles and web pages",
-  "start_url": "/speedr/",
-  "display": "standalone",
-  "background_color": "#0f0f13",
-  "theme_color": "#0f0f13",
-  "icons": [
-    { "src": "/speedr/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "/speedr/icon-512.png", "sizes": "512x512", "type": "image/png" }
-  ]
-}
+{"name":"Speedr","short_name":"Speedr","description":"RSVP speed reader for articles and web pages","start_url":"/","display":"standalone","background_color":"#0f0f13","theme_color":"#0f0f13","icons":[{"src":"/icon-192.png","sizes":"192x192","type":"image/png"},{"src":"/icon-512.png","sizes":"512x512","type":"image/png"}]}
