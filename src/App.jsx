@@ -687,6 +687,9 @@ export default function App() {
     if (activeText) { setChunks(tokenize(activeText, chunkSize)); setIdx(0); setPlaying(false); setDone(false); }
   }, [chunkSize]);
 
+  // Leaving the reader pauses playback (the bottom tab bar stays tappable while faded)
+  useEffect(() => { if (tab !== 'reader') { setPlaying(false); setIsFocused(false); } }, [tab]);
+
   // Playback
   useEffect(() => {
     if (!playing || !chunks.length) { clearTimeout(timerRef.current); return; }
