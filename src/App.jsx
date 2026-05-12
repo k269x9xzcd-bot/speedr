@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import TrainTab from './TrainTab';
 
+function decodeHtmlEntities(str) {
+  const txt = document.createElement('textarea');
+  txt.innerHTML = str;
+  return txt.value;
+}
+
 // -- FEEDS ---------------------------------------------------------------------
 const ALL_FEEDS = [
   { id:'npr-us',       name:'NPR News',           url:'https://feeds.npr.org/1001/rss.xml',                         category:'US' },
@@ -472,9 +478,10 @@ export default function App() {
 
   // Load text into reader
   const loadText = useCallback((text, title = '') => {
-    const c = tokenize(text, chunkSize);
+    const clean = decodeHtmlEntities(text);
+    const c = tokenize(clean, chunkSize);
     setChunks(c); setIdx(0); setPlaying(false); setDone(false);
-    setActiveText(text); setActiveTitle(title);
+    setActiveText(clean); setActiveTitle(title);
   }, [chunkSize]);
 
   useEffect(() => {
@@ -563,7 +570,7 @@ export default function App() {
       if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
       const text = await fetchText(u);
       if (!text || text.length < 100) throw new Error('Could not extract article text.');
-      loadText(text, u); setTab('reader');
+      loadText(decodeHtmlEntities(text), u); setTab('reader');
     } catch(e) { setFetchErr(e.message); }
     finally { setFetching(false); }
   };
@@ -575,14 +582,14 @@ export default function App() {
     // Add to history
     if (activeText) setHistory(h => [{ title: activeTitle, text: activeText }, ...h.slice(0,9)]);
     setTab('reader');
-    if (item.fullContent?.length > 500) { loadText(item.fullContent, item.title); saveArticle(item.title, item.fullContent, item.link, item.source); return; }
+    if (item.fullContent?.length > 500) { loadText(decodeHtmlEntities(item.fullContent), item.title); saveArticle(item.title, item.fullContent, item.link, item.source); return; }
     setFetching(true);
     try {
       const text = await fetchText(item.link);
       const ft = text.length > 200 ? text : (item.fullContent || item.title + '. ' + item.description);
-      loadText(ft, item.title);
+      loadText(decodeHtmlEntities(ft), item.title);
       saveArticle(item.title, ft, item.link, item.source);
-    } catch { loadText(item.fullContent || item.description || item.title, item.title); }
+    } catch { loadText(decodeHtmlEntities(item.fullContent || item.description || item.title), item.title); }
     finally { setFetching(false); }
   };
 
@@ -650,7 +657,7 @@ export default function App() {
   const visibleItems = category==='All' ? feedItems : feedItems.filter(i=>i.category===category);
   const uiFading = playing && !landscape;
 
-  const bookmarkletCode = "javascript:(function(){var sel='.body.markup,article,.post-content,.article-body,.story-body,.entry-content,main,[role=main]';var el=document.querySelector(sel);var text=(el?el.innerText:document.body.innerText).trim();if(!text||text.length<100){alert('Speedr: no article text found.');return;}var w=window.open('https://myspeedr.vercel.app/','speedr');setTimeout(function(){w.postMessage({speedrText:text,speedrTitle:document.title},'*');},1800);})();";
+  const bookmarkletCode = `javascript:(function(){var candidates=['.article-body','.post-content','.entry-content','.story-body','.body.markup','article','[role=main]','main'];var text='';for(var i=0;i<candidates.length;i++){var el=document.querySelector(candidates[i]);if(el){var ps=Array.from(el.querySelectorAll('p')).filter(function(p){return p.innerText.trim().length>40;});if(ps.length>3){text=ps.map(function(p){return p.innerText.trim();}).join('\n\n');break;}}}if(!text){var ps=Array.from(document.querySelectorAll('p')).filter(function(p){return p.innerText.trim().length>40;});text=ps.map(function(p){return p.innerText.trim();}).join('\n\n');}if(!text||text.length<100){alert('Speedr: no article text found.');return;}var w=window.open('https://myspeedr.vercel.app/','speedr');setTimeout(function(){w.postMessage({speedrText:text,speedrTitle:document.title},'*');},1800);})();`;
 
   // -- RENDER -------------------------------------------------------------------
   return (
