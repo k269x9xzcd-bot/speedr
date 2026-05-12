@@ -226,7 +226,9 @@ async function generateQuestions(passage) {
   } catch { return null; }
 }
 
-function MiniReader({ text, targetWpm, onFinish }) {
+const doneBtn = { padding:'12px 16px', border:'1px solid #1a1a1a', borderRadius:12, fontSize:14, fontWeight:300, cursor:'pointer', background:'transparent', color:'#555', whiteSpace:'nowrap', minHeight:44 };
+
+function MiniReader({ text, targetWpm, onFinish, onReadingChange }) {
   const words = useMemo(() => text.split(/\s+/).filter(Boolean), [text]);
   const [idx, setIdx] = useState(0);
   const [started, setStarted] = useState(false);
@@ -268,6 +270,9 @@ function MiniReader({ text, targetWpm, onFinish }) {
     setPaused(false);
   };
 
+  const isReading = started && !paused;
+  useEffect(() => { if (onReadingChange) onReadingChange(isReading); }, [isReading, onReadingChange]);
+
   const w = words[Math.min(idx, words.length - 1)] || '';
   const orpIdx = Math.min(Math.max(1, Math.floor(w.length / 3)), Math.max(0, w.length - 1));
   const pre = w.slice(0, orpIdx);
@@ -283,11 +288,11 @@ function MiniReader({ text, targetWpm, onFinish }) {
       <div style={{minHeight:88, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:mono, fontSize:'clamp(28px,7vw,44px)', fontWeight:500, letterSpacing:0.2, color:'#e8e8e8'}}>
         <span>{pre}</span><span style={{color:'#e05252'}}>{orp}</span><span>{post}</span>
       </div>
-      <div style={{display:'flex', gap:10}}>
+      <div style={{display:'flex', gap:10, opacity: isReading ? 0.15 : 1, transition:'opacity 0.3s ease'}}>
+        <button onClick={()=>{ if (window.confirm('Are you sure? Your progress will be lost.')) finish(); }} style={doneBtn}>Done</button>
         <button onClick={paused ? begin : ()=>setPaused(true)} style={btnGhost}>{!started ? 'Start Reading' : (paused ? 'Resume' : 'Pause')}</button>
-        <button onClick={()=>{ if (window.confirm('Are you sure? Your progress will be lost.')) finish(); }} style={btnPrimary}>Done</button>
       </div>
-      <div style={{fontSize:11, color:'#3a3a3a', letterSpacing:1}}>{Math.round(targetWpm)} WPM TARGET</div>
+      <div style={{fontSize:11, color:'#3a3a3a', letterSpacing:1, opacity: isReading ? 0.15 : 1, transition:'opacity 0.3s ease'}}>{Math.round(targetWpm)} WPM TARGET</div>
     </div>
   );
 }
@@ -330,6 +335,7 @@ export default function TrainTab({ readerWpm }) {
   const [sessionWpm, setSessionWpm] = useState(BASELINE_WPM);
   const [track, setTrack] = useState(() => { try { return localStorage.getItem(TRACK_KEY) || 'All'; } catch { return 'All'; } });
   const [remoteSessions, setRemoteSessions] = useState([]);
+  const [reading, setReading] = useState(false);
 
   const hasBaseline = !!(state.sessions && state.sessions.length > 0);
   const targetWpm = hasBaseline ? (state.target_wpm || BASELINE_WPM) : BASELINE_WPM;
@@ -397,6 +403,7 @@ export default function TrainTab({ readerWpm }) {
   };
 
   const onReaderFinish = useCallback((wpm) => {
+    setReading(false);
     setActualWpm(wpm);
     setPhase('questions');
     patchInProgress({ phase:'questions', actualWpm:wpm });
@@ -445,7 +452,7 @@ export default function TrainTab({ readerWpm }) {
     setPhase('results');
   };
 
-  const reset = () => { clearInProgress(); setPhase('home'); setPassage(null); setQuestions([]); setAnswers([]); setActualWpm(0); setComp(0); setXpEarned(0); };
+  const reset = () => { clearInProgress(); setReading(false); setPhase('home'); setPassage(null); setQuestions([]); setAnswers([]); setActualWpm(0); setComp(0); setXpEarned(0); };
 
   const allAnswered = answers.length > 0 && answers.every(a => a !== -1);
 
@@ -549,7 +556,7 @@ export default function TrainTab({ readerWpm }) {
 
       {phase === 'reading' && passage && (
         <>
-          <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>{passage.title}{passage.words ? ` · ${passage.words} words` : ''}</div>
+          <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px', opacity: reading ? 0 : 1, pointerEvents: reading ? 'none' : 'auto', transition:'opacity 0.3s ease'}}>{passage.title}{passage.words ? ` · ${passage.words} words` : ''}</div>
           <div style={{...card, padding:16, marginBottom:12}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
               <div style={{fontSize:13, color:'#c0c0c0'}}>Speed</div>
@@ -557,7 +564,7 @@ export default function TrainTab({ readerWpm }) {
             </div>
             <input type="range" min={100} max={600} step={10} value={sessionWpm} onChange={e=>setSessionWpm(+e.target.value)} style={{width:'100%', accentColor:'#7c6af7'}}/>
           </div>
-          <MiniReader key={passage.id} text={passage.text} targetWpm={sessionWpm} onFinish={onReaderFinish}/>
+          <MiniReader key={passage.id} text={passage.text} targetWpm={sessionWpm} onFinish={onReaderFinish} onReadingChange={setReading}/>
         </>
       )}
 
