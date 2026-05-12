@@ -87,7 +87,7 @@ const ALL_FEEDS = [
   { id:'economist',     name:'The Economist',      url:'https://www.economist.com/feeds/print-sections/all-sections.xml', category:'Premium' },
 ];
 
-const CATEGORIES = ['All','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack','Premium','Custom'];
+const CATEGORIES = ['All','AI','Digg','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack','Premium','Custom'];
 const SUPABASE_RSS  = 'https://reojrvyczjrdaobgnrod.supabase.co/functions/v1/rss';
 const SUPABASE_URL  = 'https://reojrvyczjrdaobgnrod.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlb2pydnljempyZGFvYmducm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzAyODQsImV4cCI6MjA5NDAwNjI4NH0.RziEy75n6MS6SNl_nUqLOVRSG19TNEta9AvzrT0BB14';
@@ -503,6 +503,63 @@ async function fetchViaArchivePh(url) {
   throw new Error('no article text');
 }
 
+// -- Digg ("di.gg") aggregator scrape (Next.js RSC payload — fragile, best-effort) ----
+function jsUnescape(s) {
+  let out = '', i = 0;
+  while (i < s.length) {
+    const c = s[i];
+    if (c === '\\' && i + 1 < s.length) {
+      const n = s[i + 1];
+      if (n === 'n') { out += '\n'; i += 2; }
+      else if (n === 't') { out += '\t'; i += 2; }
+      else if (n === 'r') { out += '\r'; i += 2; }
+      else if (n === 'u') { const cp = parseInt(s.slice(i + 2, i + 6), 16); out += isNaN(cp) ? n : String.fromCharCode(cp); i += 6; }
+      else { out += n; i += 2; }
+    } else { out += c; i++; }
+  }
+  return out;
+}
+function extractJsonArrayAfter(str, key) {
+  const m = str.indexOf('"' + key + '":[');
+  if (m < 0) return null;
+  const start = str.indexOf('[', m);
+  let depth = 0, inStr = false;
+  for (let j = start; j < str.length; j++) {
+    const ch = str[j];
+    if (inStr) { if (ch === '\\') { j++; } else if (ch === '"') inStr = false; continue; }
+    if (ch === '"') inStr = true;
+    else if (ch === '[') depth++;
+    else if (ch === ']') { depth--; if (depth === 0) return str.slice(start, j + 1); }
+  }
+  return null;
+}
+async function fetchDiggStories(which) {
+  const url = which === 'ai' ? 'https://di.gg/ai' : 'https://di.gg';
+  const res = await fetch(ALLORIGINS + encodeURIComponent(url) + '&t=' + Math.floor(Date.now() / 300000), { signal: AbortSignal.timeout(15000) });
+  const data = await res.json().catch(() => ({}));
+  const html = data.contents || '';
+  if (!html) return [];
+  const chunks = [...html.matchAll(/self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)].map(x => x[1]);
+  if (!chunks.length) return [];
+  const payload = jsUnescape(chunks.join(''));
+  const arrText = extractJsonArrayAfter(payload, 'items');
+  if (!arrText) return [];
+  let arr;
+  try { arr = JSON.parse(arrText); } catch { return []; }
+  if (!Array.isArray(arr)) return [];
+  return arr.slice(0, 30).map((c, i) => ({
+    title: ((c && (c.title || c.sourceTitle)) || '').toString().trim(),
+    description: ((c && (c.tldr || c.summary || c.reason)) || '').toString().trim(),
+    link: 'https://di.gg/' + (which === 'ai' ? 'ai/' : '') + ((c && (c.clusterUrlId || c.clusterId)) || ''),
+    pubDate: (c && c.createdAt) || '',
+    source: which === 'ai' ? 'Digg · AI' : 'Digg',
+    category: which === 'ai' ? 'AI' : 'Digg',
+    diggCount: (c && (c.postCount || c.diggs)) || 0,
+    rank: (c && c.rank) || i + 1,
+    isDigg: true,
+  })).filter(it => it.title);
+}
+
 async function fetchText(url) {
   let best = '';
   const good = t => t && wordCount(t) >= 200 && !PAYWALL_PHRASES.some(p => t.toLowerCase().includes(p));
@@ -702,6 +759,8 @@ export default function App() {
   const [category, setCategory] = useState('All');
   const [feedItems, setFeedItems] = useState([]);
   const [feedLoading, setFeedLoading] = useState(false);
+  const [diggItems, setDiggItems] = useState([]);
+  const [diggLoading, setDiggLoading] = useState(false);
   const [feedStatuses, setFeedStatuses] = useState({});
   const [showSources, setShowSources] = useState(false);
   const [prevNewsScroll, setPrevNewsScroll] = useState(0);
@@ -832,6 +891,13 @@ export default function App() {
 
   useEffect(() => { if (tab==='news') loadFeeds(activeFeeds); if (tab==='library') loadLibrary(); }, [tab]);
 
+  const loadDigg = useCallback((which) => {
+    setDiggLoading(true);
+    fetchDiggStories(which).then(items => setDiggItems(items)).catch(() => setDiggItems([])).finally(() => setDiggLoading(false));
+  }, []);
+  // AI / Digg are live rankings — refetch on each visit to the category
+  useEffect(() => { if (tab==='news' && (category==='AI' || category==='Digg')) loadDigg(category==='AI' ? 'ai' : 'digg'); }, [tab, category, loadDigg]);
+
   const handleFetchUrl = async () => {
     if (!urlInput.trim()) return;
     setFetchErr(''); setFetching(true);
@@ -852,6 +918,8 @@ export default function App() {
     // Add to history
     if (activeText) setHistory(h => [{ title: activeTitle, text: activeText }, ...h.slice(0,9)]);
     setTab('reader');
+    // Digg story: no clean source article to extract — load the title + summary the aggregator wrote
+    if (item.isDigg) { loadText(((item.title||'') + '\n\n' + (item.description||'')).trim() || (item.title||'Digg story'), item.title || 'Digg story'); return; }
     if (item.fullContent?.length > 500) { loadText(decodeHtmlEntities(item.fullContent), item.title); saveArticle(item.title, item.fullContent, item.link, item.source); return; }
     setFetching(true);
     try {
@@ -1177,32 +1245,33 @@ export default function App() {
               </div>
 
               <div style={card}>
-                {feedLoading && feedItems.length===0 ? (
+                {(()=>{ const isDiggCat = category==='AI'||category==='Digg'; const newsList = isDiggCat ? diggItems : visibleItems; const newsBusy = isDiggCat ? (diggLoading && diggItems.length===0) : (feedLoading && feedItems.length===0); const refresh = () => isDiggCat ? loadDigg(category==='AI'?'ai':'digg') : loadFeeds(activeFeeds,true);
+                return newsBusy ? (
                   <div style={{padding:48,textAlign:'center',color:'#222',fontSize:14,animation:'pulse 1.4s infinite'}}>Loading...</div>
-                ) : visibleItems.length===0 ? (
+                ) : newsList.length===0 ? (
                   <div style={{padding:48,textAlign:'center'}}>
-                    <div style={{color:'#222',fontSize:14,marginBottom:12}}>No articles</div>
-                    <button style={btnPrimary} onClick={()=>loadFeeds(activeFeeds,true)}>Refresh</button>
+                    <div style={{color:'#222',fontSize:14,marginBottom:12}}>{isDiggCat ? "Couldn't load Digg right now" : 'No articles'}</div>
+                    <button style={btnPrimary} onClick={refresh}>Refresh</button>
                   </div>
-                ) : visibleItems.map((item,i) => {
-                  const feed = allFeeds.find(f => f.id === item.feedId || f.name === item.source);
+                ) : newsList.map((item,i) => {
+                  const feed = item.isDigg ? null : allFeeds.find(f => f.id === item.feedId || f.name === item.source);
                   const fav = feed ? feedFavicon(feed.url) : '';
                   return (
-                  <div key={i} onClick={()=>handleReadArticle(item)} style={{padding:'14px 16px',borderBottom:i<visibleItems.length-1?'1px solid #111':'none',display:'flex',gap:12,cursor:'pointer',WebkitTapHighlightColor:'transparent'}}>
+                  <div key={i} onClick={()=>handleReadArticle(item)} style={{padding:'14px 16px',borderBottom:i<newsList.length-1?'1px solid #111':'none',display:'flex',gap:12,cursor:'pointer',WebkitTapHighlightColor:'transparent'}}>
                     {fav && <img src={fav} alt="" width={18} height={18} loading="lazy" onError={e=>{e.currentTarget.style.display='none';}} style={{flexShrink:0,alignSelf:'flex-start',marginTop:2,borderRadius:4,opacity:0.85}}/>}
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:11,color:'#7c6af7',marginBottom:4,fontWeight:500,letterSpacing:0.3}}>{item.source} &nbsp; {timeAgo(item.pubDate)}</div>
+                      <div style={{fontSize:11,color:'#7c6af7',marginBottom:4,fontWeight:500,letterSpacing:0.3}}>{item.source}{item.isDigg && item.diggCount ? ` · ${item.diggCount}` : ''} &nbsp; {timeAgo(item.pubDate)}</div>
                       <div style={{fontSize:15,color:'#e0e0e0',lineHeight:1.45,fontWeight:400}}>{item.title}</div>
-                      {item.description && <div style={{fontSize:12,color:'#555',marginTop:4,lineHeight:1.5}}>{item.description.slice(0,120)}</div>}
+                      {item.description && <div style={{fontSize:12,color:'#555',marginTop:4,lineHeight:1.5}}>{item.description.slice(0,140)}</div>}
                     </div>
                     <div style={{color:'#2a2a2a',fontSize:16,flexShrink:0,alignSelf:'center'}}>{'>'}</div>
                   </div>
                   );
-                })}
+                }); })()}
               </div>
 
-              <button style={{...btnGhost,width:'100%',marginTop:4,marginBottom:12}} onClick={()=>loadFeeds(activeFeeds,true)}>
-                {feedLoading ? 'Refreshing...' : 'Refresh feeds'}
+              <button style={{...btnGhost,width:'100%',marginTop:4,marginBottom:12}} onClick={()=>{ const isDiggCat = category==='AI'||category==='Digg'; isDiggCat ? loadDigg(category==='AI'?'ai':'digg') : loadFeeds(activeFeeds,true); }}>
+                {((category==='AI'||category==='Digg') ? diggLoading : feedLoading) ? 'Refreshing...' : 'Refresh'}
               </button>
             </div>
           )}
