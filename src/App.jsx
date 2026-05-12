@@ -867,7 +867,7 @@ export default function App() {
   const uiFading = isFocused && !landscape;
 
   const bookmarkletCode = `javascript:(function(){
-  var title = document.title.replace(/\\s*[\\|\\-–—].*$/, '').trim();
+  var title = document.title.replace(/\\s+[\\|\\-–—]\\s+.*$/, '').trim();
   var text = '';
   var candidates = [
     '.article-body','.post-content','.entry-content','.story-body',
