@@ -311,50 +311,65 @@ function OrpWord({ word, on, color }) {
   return <span>{pre}<span style={{color,fontWeight:600}}>{orp}</span>{post}</span>;
 }
 
+function SingleWordChunk({ word, font, baseSize, orpColor, orpOn, hashMarksOn }) {
+  const s = word.replace(/[.,!?;:]+$/, '');
+  const punct = word.slice(s.length);
+  const orpIdx = Math.max(0, Math.min(Math.floor(s.length * 0.35), s.length - 1));
+  const pre = s.slice(0, orpIdx);
+  const orp = s[orpIdx] || '';
+  const post = s.slice(orpIdx + 1) + punct;
+  const scaledSize = s.length > 11
+    ? `clamp(18px, ${Math.max(3, 7 - (s.length - 11) * 0.25)}vw, ${Math.max(22, 44 - (s.length - 11) * 2)}px)`
+    : baseSize;
+
+  const orpRef = useRef(null);
+  const containerRef = useRef(null);
+  const [orpCenter, setOrpCenter] = useState(null);
+
+  useEffect(() => {
+    if (orpRef.current && containerRef.current) {
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const orpRect = orpRef.current.getBoundingClientRect();
+      const center = orpRect.left + orpRect.width / 2 - containerRect.left;
+      setOrpCenter(center);
+    }
+  });
+
+  const markLeft = orpCenter !== null ? orpCenter : '35%';
+  return (
+    <div ref={containerRef} style={{position:'relative', width:'100%', display:'flex', alignItems:'center', fontFamily:font, fontSize:scaledSize, fontWeight:500, letterSpacing:0.3, whiteSpace:'nowrap', userSelect:'none'}}>
+      {/* Hash marks — centered over the measured ORP letter */}
+      {hashMarksOn && (
+        <>
+          <div style={{position:'absolute', left:markLeft, transform:'translateX(-50%)', top:0, bottom:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-start', paddingTop:8, gap:3, pointerEvents:'none', zIndex:1}}>
+            <div style={{width:2, height:14, borderRadius:1, background:orpColor, opacity:0.7}}/>
+            <div style={{width:2, height:7, borderRadius:1, background:orpColor, opacity:0.35}}/>
+          </div>
+          <div style={{position:'absolute', left:markLeft, transform:'translateX(-50%)', top:0, bottom:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end', paddingBottom:8, gap:3, pointerEvents:'none', zIndex:1}}>
+            <div style={{width:2, height:7, borderRadius:1, background:orpColor, opacity:0.35}}/>
+            <div style={{width:2, height:14, borderRadius:1, background:orpColor, opacity:0.7}}/>
+          </div>
+        </>
+      )}
+      {/* Word split into pre / ORP / post anchored at 35% */}
+      <span style={{flex:'0 0 35%', textAlign:'right', color:'#f0f0f0', paddingRight:1}}>{pre}</span>
+      <span ref={orpRef} style={{flex:'0 0 auto', color: orpOn ? orpColor : '#f0f0f0', fontWeight:600}}>{orp}</span>
+      <span style={{flex:'0 0 65%', textAlign:'left', color:'#f0f0f0', paddingLeft:1}}>{post}</span>
+    </div>
+  );
+}
+
 function ChunkDisplay({ chunk, settings }) {
   const font = FONT_MAP[settings.fontStyle];
   const baseSize = FONT_SIZE_MAP[settings.fontSize];
 
   if (chunk.length === 1) {
-    const word = chunk[0];
-    const s = word.replace(/[.,!?;:]+$/, '');
-    const punct = word.slice(s.length);
-    const orpIdx = Math.max(0, Math.min(Math.floor(s.length * 0.35), s.length - 1));
-    const pre = s.slice(0, orpIdx);
-    const orp = s[orpIdx] || '';
-    const post = s.slice(orpIdx + 1) + punct;
-    const scaledSize = s.length > 11
-      ? `clamp(18px, ${Math.max(3, 7 - (s.length - 11) * 0.25)}vw, ${Math.max(22, 44 - (s.length - 11) * 2)}px)`
-      : baseSize;
-
-    return (
-      <div style={{position:'relative', width:'100%', display:'flex', alignItems:'center', fontFamily:font, fontSize:scaledSize, fontWeight:500, letterSpacing:0.3, whiteSpace:'nowrap', userSelect:'none'}}>
-        {/* Hash marks */}
-        {settings.hashMarksOn && (
-          <>
-            <div style={{position:'absolute', left:'35%', top:0, bottom:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-start', paddingTop:8, gap:3, pointerEvents:'none', zIndex:1}}>
-              <div style={{width:2, height:14, borderRadius:1, background:settings.orpColor, opacity:0.7}}/>
-              <div style={{width:2, height:7, borderRadius:1, background:settings.orpColor, opacity:0.35}}/>
-            </div>
-            <div style={{position:'absolute', left:'35%', top:0, bottom:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end', paddingBottom:8, gap:3, pointerEvents:'none', zIndex:1}}>
-              <div style={{width:2, height:7, borderRadius:1, background:settings.orpColor, opacity:0.35}}/>
-              <div style={{width:2, height:14, borderRadius:1, background:settings.orpColor, opacity:0.7}}/>
-            </div>
-          </>
-        )}
-        {/* Word split into pre / ORP / post anchored at 35% */}
-        <span style={{flex:'0 0 35%', textAlign:'right', color:'#f0f0f0', paddingRight:1}}>{pre}</span>
-        <span style={{flex:'0 0 auto', color: settings.orpOn ? settings.orpColor : '#f0f0f0', fontWeight:600}}>{orp}</span>
-        <span style={{flex:'0 0 65%', textAlign:'left', color:'#f0f0f0', paddingLeft:1}}>{post}</span>
-      </div>
-    );
+    return <SingleWordChunk word={chunk[0]} font={font} baseSize={baseSize} orpColor={settings.orpColor} orpOn={settings.orpOn} hashMarksOn={settings.hashMarksOn}/>;
   }
 
   // Multi-word chunk — centered, no anchor, no hashmarks
-  const font2 = FONT_MAP[settings.fontStyle];
-  const size2 = FONT_SIZE_MAP[settings.fontSize];
   return (
-    <div style={{fontFamily:font2, fontSize:size2, textAlign:'center', lineHeight:1.3, letterSpacing:0.3, display:'flex', alignItems:'center', justifyContent:'center', gap:'0.35em', flexWrap:'nowrap', whiteSpace:'nowrap', color:'#f0f0f0'}}>
+    <div style={{fontFamily:font, fontSize:baseSize, textAlign:'center', lineHeight:1.3, letterSpacing:0.3, display:'flex', alignItems:'center', justifyContent:'center', gap:'0.35em', flexWrap:'nowrap', whiteSpace:'nowrap', color:'#f0f0f0'}}>
       {chunk.map((w,i) => <React.Fragment key={i}>{i>0&&' '}<OrpWord word={w} on={settings.orpOn} color={settings.orpColor}/></React.Fragment>)}
     </div>
   );
