@@ -620,6 +620,7 @@ export default function App() {
   const [idx, setIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [done, setDone] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const [history, setHistory] = useState([]); // [{title, text}]
 
   // News
@@ -670,7 +671,7 @@ export default function App() {
   const loadText = useCallback((text, title = '') => {
     const clean = decodeHtmlEntities(text);
     const c = tokenize(clean, chunkSize);
-    setChunks(c); setIdx(0); setPlaying(false); setDone(false);
+    setChunks(c); setIdx(0); setPlaying(false); setDone(false); setIsFocused(false);
     setActiveText(clean); setActiveTitle(title);
   }, [chunkSize]);
 
@@ -689,7 +690,7 @@ export default function App() {
   // Playback
   useEffect(() => {
     if (!playing || !chunks.length) { clearTimeout(timerRef.current); return; }
-    if (idx >= chunks.length) { setPlaying(false); setDone(true); return; }
+    if (idx >= chunks.length) { setPlaying(false); setDone(true); setIsFocused(false); return; }
     timerRef.current = setTimeout(() => setIdx(i => i+1), chunkDelay(chunks[idx], baseDelay, variablePacing));
     return () => clearTimeout(timerRef.current);
   }, [playing, idx, chunks, baseDelay, variablePacing]);
@@ -852,7 +853,7 @@ export default function App() {
   const minsLeft = Math.max(0,(totalWords-wordsRead)/wpm).toFixed(1);
   const currentChunk = chunks[Math.min(idx,chunks.length-1)] || [];
   const visibleItems = category==='All' ? feedItems : feedItems.filter(i=>i.category===category);
-  const uiFading = playing && !landscape;
+  const uiFading = isFocused && !landscape;
 
   const bookmarkletCode = `javascript:(function(){var candidates=['.article-body','.post-content','.entry-content','.story-body','.body.markup','article','[role=main]','main'];var text='';for(var i=0;i<candidates.length;i++){var el=document.querySelector(candidates[i]);if(el){var ps=Array.from(el.querySelectorAll('p')).filter(function(p){return p.innerText.trim().length>40;});if(ps.length>3){text=ps.map(function(p){return p.innerText.trim();}).join('\n\n');break;}}}if(!text){var ps=Array.from(document.querySelectorAll('p')).filter(function(p){return p.innerText.trim().length>40;});text=ps.map(function(p){return p.innerText.trim();}).join('\n\n');}if(!text||text.length<100){alert('Speedr: no article text found.');return;}var w=window.open('https://myspeedr.vercel.app/','speedr');setTimeout(function(){w.postMessage({speedrText:text,speedrTitle:document.title},'*');},1800);})();`;
 
@@ -863,7 +864,7 @@ export default function App() {
       <div style={{position:'fixed',inset:0,display:'flex',flexDirection:'column',paddingTop:'env(safe-area-inset-top)',paddingLeft:'env(safe-area-inset-left)',paddingRight:'env(safe-area-inset-right)',background:'#0d0d0d',overflow:'hidden',height:'100dvh'}}>
 
         {/* TOP BAR */}
-        <div className={`ls-hide ui-layer${uiFading?' ui-faded':''}`} style={{flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px 10px',borderBottom:'1px solid #141414'}}>
+        <div className="ls-hide ui-layer" style={{flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px 10px',borderBottom:'1px solid #141414',opacity:uiFading?0.07:1,transition:'opacity 0.25s ease',pointerEvents:'auto'}}>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
             {/* Back button when came from news */}
             {tab==='reader' && activeTitle && prevNewsScroll > 0 && (
@@ -878,7 +879,7 @@ export default function App() {
             {tab==='news' && <button onClick={()=>setShowSources(s=>!s)} style={showSources?pillActive:pill}>{showSources?'done':'sources'}</button>}
             {tab==='reader' && (
               <button
-                onClick={()=>{ if(chunks.length){ if(playing){setPlaying(false);}else{if(idx>=chunks.length)setIdx(0);setPlaying(true);} } }}
+                onClick={()=>{ if(chunks.length){ if(playing){setPlaying(false);setIsFocused(false);}else{if(idx>=chunks.length){setIdx(0);setDone(false);}setPlaying(true);setIsFocused(true);} } }}
                 style={{...pill, color: chunks.length?(playing?'#fff':'#8b7fff'):'#333', borderColor: chunks.length?(playing?'#7c6af7':'#2a2a4a'):'#1a1a1a', background: playing?'#7c6af7':'transparent', cursor: chunks.length?'pointer':'default'}}
               >
                 {playing ? 'pause' : 'focus'}
@@ -937,10 +938,10 @@ export default function App() {
                   />
                   {/* MIDDLE ZONE — hold to read / tap to pause */}
                   <div
-                    onPointerDown={e => { if (!chunks.length) return; e.preventDefault(); holdRef.current = true; if (idx >= chunks.length) { setIdx(0); setDone(false); } setPlaying(true); }}
-                    onPointerUp={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); }}
-                    onPointerLeave={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); }}
-                    onPointerCancel={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); }}
+                    onPointerDown={e => { if (!chunks.length) return; e.preventDefault(); holdRef.current = true; if (idx >= chunks.length) { setIdx(0); setDone(false); } setPlaying(true); setIsFocused(true); }}
+                    onPointerUp={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); setIsFocused(false); }}
+                    onPointerLeave={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); setIsFocused(false); }}
+                    onPointerCancel={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); setIsFocused(false); }}
                     style={{position:'absolute', left:'20%', top:0, width:'50%', height:'100%', zIndex:10, touchAction:'none'}}
                   />
                   {/* RIGHT ZONE — fast forward */}
@@ -1239,7 +1240,7 @@ export default function App() {
         </div>
 
         {/* BOTTOM TAB BAR */}
-        <div className={`ls-hide ui-layer${uiFading?' ui-faded':''}`} style={{flexShrink:0,display:'flex',borderTop:'1px solid #141414',background:'#0d0d0d',paddingBottom:'env(safe-area-inset-bottom)',minHeight:58,zIndex:10}}>
+        <div className="ls-hide ui-layer" style={{flexShrink:0,display:'flex',borderTop:'1px solid #141414',background:'#0d0d0d',paddingBottom:'env(safe-area-inset-bottom)',minHeight:58,zIndex:10,opacity:uiFading?0.07:1,transition:'opacity 0.25s ease',pointerEvents:'auto'}}>
           {[['reader','R','Reader'],['news','N','News'],['library','B','Library'],['train','\u26a1','Train'],['settings','\u2699','Settings']].map(([id,icon,label]) => (
             <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'10px 0 8px',border:'none',background:'transparent',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,WebkitTapHighlightColor:'transparent'}}>
               <span style={{fontSize:(id==='settings'||id==='train')?20:19,fontFamily:(id==='settings'||id==='train')?'inherit':"'JetBrains Mono',monospace",fontWeight:(id==='settings'||id==='train')?400:500,color:tab===id?'#8b7fff':'#3a3a3a',transition:'color 0.15s'}}>{icon}</span>
