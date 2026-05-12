@@ -704,7 +704,15 @@ export default function App() {
   // postMessage from bookmarklet
   useEffect(() => {
     const onMsg = e => {
-      if (e.data?.speedrText?.length > 50) { loadText(e.data.speedrText, e.data.speedrTitle || 'Bookmarklet'); setTab('reader'); }
+      if (e.data?.speedrText?.length > 50) {
+        loadText(e.data.speedrText, e.data.speedrTitle || 'Bookmarklet');
+        setTab('reader');
+        // Dismiss onboarding if showing
+        if (localStorage.getItem('speedr_onboarded') !== '1') {
+          localStorage.setItem('speedr_onboarded', '1');
+          setShowOnboarding(false);
+        }
+      }
     };
     window.addEventListener('message', onMsg);
     return () => window.removeEventListener('message', onMsg);
@@ -858,7 +866,50 @@ export default function App() {
   const visibleItems = category==='All' ? feedItems : feedItems.filter(i=>i.category===category);
   const uiFading = isFocused && !landscape;
 
-  const bookmarkletCode = `javascript:(function(){var candidates=['.article-body','.post-content','.entry-content','.story-body','.body.markup','article','[role=main]','main'];var text='';for(var i=0;i<candidates.length;i++){var el=document.querySelector(candidates[i]);if(el){var ps=Array.from(el.querySelectorAll('p')).filter(function(p){return p.innerText.trim().length>40;});if(ps.length>3){text=ps.map(function(p){return p.innerText.trim();}).join('\n\n');break;}}}if(!text){var ps=Array.from(document.querySelectorAll('p')).filter(function(p){return p.innerText.trim().length>40;});text=ps.map(function(p){return p.innerText.trim();}).join('\n\n');}if(!text||text.length<100){alert('Speedr: no article text found.');return;}var w=window.open('https://myspeedr.vercel.app/','speedr');setTimeout(function(){w.postMessage({speedrText:text,speedrTitle:document.title},'*');},1800);})();`;
+  const bookmarkletCode = `javascript:(function(){
+  var title = document.title.replace(/\\s*[\\|\\-–—].*$/, '').trim();
+  var text = '';
+  var candidates = [
+    '.article-body','.post-content','.entry-content','.story-body',
+    '.body.markup','.article__body','.article-content','.post-body',
+    '.content-body','[data-testid="article-body"]','article','[role=main]','main'
+  ];
+  for (var i = 0; i < candidates.length; i++) {
+    var el = document.querySelector(candidates[i]);
+    if (!el) continue;
+    var ps = Array.from(el.querySelectorAll('p, li')).filter(function(p) {
+      var t = p.innerText.trim();
+      return t.length > 40 && !/subscribe|sign.?up|newsletter|follow us|read more|advertisement/i.test(t);
+    });
+    if (ps.length > 3) {
+      text = ps.map(function(p) { return p.innerText.trim(); }).join('\\n\\n');
+      break;
+    }
+  }
+  if (!text) {
+    var ps = Array.from(document.querySelectorAll('p')).filter(function(p) {
+      var t = p.innerText.trim();
+      return t.length > 40 && !/subscribe|sign.?up|newsletter|follow us|advertisement/i.test(t);
+    });
+    text = ps.map(function(p) { return p.innerText.trim(); }).join('\\n\\n');
+  }
+  if (!text || text.length < 100) {
+    alert('Speedr: no article text found. Make sure you are logged in if this is a paywalled article.');
+    return;
+  }
+  if (text.split(/\\s+/).length < 150) {
+    alert('Speedr: only ' + text.split(/\\s+/).length + ' words found. You may be hitting a paywall — make sure you are logged in.');
+    return;
+  }
+  var w = window.open('https://myspeedr.vercel.app/', 'speedr');
+  var attempts = 0;
+  var send = function() {
+    attempts++;
+    try { w.postMessage({ speedrText: text, speedrTitle: title }, '*'); } catch(e) {}
+    if (attempts < 3) setTimeout(send, 800);
+  };
+  setTimeout(send, 800);
+})();`.replace(/\n\s*/g, '');
 
   // -- RENDER -------------------------------------------------------------------
   return (
