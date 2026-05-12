@@ -3,12 +3,22 @@
 
 const MODEL = 'claude-haiku-4-5-20251001';
 
+function hostOf(v) { try { return new URL(v).hostname.toLowerCase(); } catch { return ''; } }
+function isAllowedHost(h) {
+  return h === 'myspeedr.vercel.app' || h === 'localhost' || h === '127.0.0.1' || h.endsWith('.vercel.app');
+}
+
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin || '';
+  const allowed = isAllowedHost(hostOf(origin)) || isAllowedHost(hostOf(req.headers.referer || ''));
+  // Reflect the origin only when it's one of ours (best-effort anti-abuse; a non-browser caller can still spoof headers).
+  res.setHeader('Access-Control-Allow-Origin', allowed && origin ? origin : 'https://myspeedr.vercel.app');
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   if (req.method !== 'POST') { res.status(405).json({ error: 'Method not allowed' }); return; }
+  if (!allowed) { res.status(403).json({ error: 'Forbidden' }); return; }
 
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) { res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured' }); return; }
