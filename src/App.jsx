@@ -701,6 +701,12 @@ export default function App() {
   // Stop any seek/playback timers if the app unmounts mid-press
   useEffect(() => () => { clearInterval(rewindRef.current); clearInterval(fastFwdRef.current); clearTimeout(timerRef.current); }, []);
 
+  // Keep the status-bar / theme color pure black while reading
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', uiFading ? '#000000' : '#000000');
+  }, [uiFading]);
+
   // postMessage from bookmarklet
   useEffect(() => {
     const onMsg = e => {
@@ -915,7 +921,7 @@ export default function App() {
   return (
     <>
       <style>{GLOBAL_CSS}</style>
-      <div style={{position:'fixed',inset:0,display:'flex',flexDirection:'column',paddingTop:'env(safe-area-inset-top)',paddingLeft:'env(safe-area-inset-left)',paddingRight:'env(safe-area-inset-right)',background:'#0d0d0d',overflow:'hidden',height:'100dvh'}}>
+      <div style={{position:'fixed',inset:0,display:'flex',flexDirection:'column',paddingTop:'env(safe-area-inset-top)',paddingLeft:'env(safe-area-inset-left)',paddingRight:'env(safe-area-inset-right)',background:uiFading?'#000000':'#0d0d0d',transition:'background 0.25s ease',overflow:'hidden',height:'100dvh'}}>
 
         {/* TOP BAR */}
         <div className="ls-hide ui-layer" style={{flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px 10px',borderBottom:'1px solid #141414',opacity:uiFading?0.07:1,transition:'opacity 0.25s ease',pointerEvents:'auto'}}>
