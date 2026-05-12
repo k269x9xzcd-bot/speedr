@@ -78,7 +78,7 @@ const ALL_FEEDS = [
   { id:'bookbrowse',    name:'BookBrowse',         url:'https://www.bookbrowse.com/rss/book_news.rss',               category:'Entertainment' },
 ];
 
-const CATEGORIES = ['All','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack'];
+const CATEGORIES = ['All','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack','Custom'];
 const SUPABASE_RSS  = 'https://reojrvyczjrdaobgnrod.supabase.co/functions/v1/rss';
 const SUPABASE_URL  = 'https://reojrvyczjrdaobgnrod.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlb2pydnljempyZGFvYmducm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzAyODQsImV4cCI6MjA5NDAwNjI4NH0.RziEy75n6MS6SNl_nUqLOVRSG19TNEta9AvzrT0BB14';
@@ -694,6 +694,9 @@ export default function App() {
     return () => clearTimeout(timerRef.current);
   }, [playing, idx, chunks, baseDelay, variablePacing]);
 
+  // Stop any seek/playback timers if the app unmounts mid-press
+  useEffect(() => () => { clearInterval(rewindRef.current); clearInterval(fastFwdRef.current); clearTimeout(timerRef.current); }, []);
+
   // postMessage from bookmarklet
   useEffect(() => {
     const onMsg = e => {
@@ -797,6 +800,27 @@ export default function App() {
         setLibrary(all); localStorage.setItem('speedr_library',JSON.stringify(all));
       }
     } catch {} finally { setLibLoading(false); }
+  };
+
+  const openLibraryArticle = async (a) => {
+    let text = a.text;
+    if (!text && !a.id.startsWith('local_')) {
+      showToast('Loading...');
+      const art = await loadArticleTextRemote(a.id).catch(() => null);
+      text = art && art.text;
+      if (text) {
+        setLibrary(prev => {
+          const next = prev.map(x => x.id === a.id ? { ...x, text } : x);
+          localStorage.setItem('speedr_library', JSON.stringify(next));
+          return next;
+        });
+      }
+    }
+    if (!text) { showToast('Could not load article'); return; }
+    if (activeText) setHistory(h => [{ title: activeTitle, text: activeText }, ...h.slice(0, 9)]);
+    loadText(text, a.title);
+    setActiveArticleUrl(a.url || '');
+    setTab('reader');
   };
 
   const goBackToNews = () => {
@@ -993,7 +1017,7 @@ export default function App() {
               {/* Category pills with fade edges */}
               <div style={{position:'relative',marginBottom:12}}>
                 <div style={{display:'flex',gap:6,overflowX:'auto',paddingBottom:2,WebkitMaskImage:'linear-gradient(to right, transparent 0, black 8px, black calc(100% - 24px), transparent 100%)'}}>
-                  {CATEGORIES.map(cat => (
+                  {CATEGORIES.filter(cat => cat !== 'Custom' || extraFeeds.length > 0).map(cat => (
                     <button key={cat} style={{padding:'7px 14px',borderRadius:20,fontSize:13,border:'none',cursor:'pointer',whiteSpace:'nowrap',flexShrink:0,fontWeight:400,background:category===cat?'#7c6af7':'#111',color:category===cat?'#fff':'#c0c0c0',transition:'all 0.15s'}} onClick={()=>setCategory(cat)}>{cat}</button>
                   ))}
                 </div>
@@ -1100,17 +1124,7 @@ export default function App() {
                 <div style={card}>
                   {library.filter(a=>!libSearch||a.title.toLowerCase().includes(libSearch.toLowerCase())).map((a,i,arr) => (
                     <div key={a.id} style={{padding:'14px 16px',borderBottom:i<arr.length-1?'1px solid #111':'none',display:'flex',gap:12,alignItems:'flex-start'}}>
-                      <div style={{flex:1,minWidth:0,cursor:'pointer'}} onClick={()=>{
-                        if(a.text){
-                          if(activeText) setHistory(h=>[{title:activeTitle,text:activeText},...h.slice(0,9)]);
-                          setActiveTitle(a.title);
-                          setActiveText(a.text);
-                          setActiveArticleUrl(a.url||'');
-                          setChunks(tokenize(a.text,chunkSize));
-                          setIdx(0); setPlaying(false); setDone(false);
-                          setTab('reader');
-                        }
-                      }}>
+                      <div style={{flex:1,minWidth:0,cursor:'pointer'}} onClick={()=>openLibraryArticle(a)}>
                         <div style={{fontSize:14,color:'#e0e0e0',fontWeight:400,lineHeight:1.4}}>{a.title}</div>
                         <div style={{fontSize:11,color:'#555',marginTop:4}}>
                           {a.source ? a.source + ' - ' : ''}{(a.word_count||0).toLocaleString()} words - {timeAgo(a.saved_at)}
