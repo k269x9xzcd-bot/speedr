@@ -701,12 +701,6 @@ export default function App() {
   // Stop any seek/playback timers if the app unmounts mid-press
   useEffect(() => () => { clearInterval(rewindRef.current); clearInterval(fastFwdRef.current); clearTimeout(timerRef.current); }, []);
 
-  // Keep the status-bar / theme color pure black while reading
-  useEffect(() => {
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', uiFading ? '#000000' : '#000000');
-  }, [uiFading]);
-
   // postMessage from bookmarklet
   useEffect(() => {
     const onMsg = e => {
@@ -871,6 +865,12 @@ export default function App() {
   const currentChunk = chunks[Math.min(idx,chunks.length-1)] || [];
   const visibleItems = category==='All' ? feedItems : feedItems.filter(i=>i.category===category);
   const uiFading = isFocused && !landscape;
+
+  // Keep the status-bar / theme color pure black while reading
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', uiFading ? '#000000' : '#000000');
+  }, [uiFading]);
 
   const bookmarkletCode = `javascript:(function(){
   var title = document.title.replace(/\\s+[\\|\\-–—]\\s+.*$/, '').trim();
