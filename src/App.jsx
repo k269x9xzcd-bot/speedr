@@ -471,6 +471,8 @@ export default function App() {
   const holdRef = useRef(false);
   const newsScrollRef = useRef(null);
   const wordRef = useRef(null);
+  const rewindRef = useRef(null);
+  const fastFwdRef = useRef(null);
   const baseDelay = 60000 / wpm;
 
   const allFeeds = useMemo(() => [...ALL_FEEDS, ...extraFeeds], [extraFeeds]);
@@ -548,6 +550,30 @@ export default function App() {
   const onHoldEnd = useCallback(e => {
     if (!holdRef.current) return;
     e.preventDefault(); holdRef.current = false; setPlaying(false);
+  }, []);
+
+  const onRewindStart = useCallback(e => {
+    e.stopPropagation();
+    if (!chunks.length) return;
+    setIdx(i => Math.max(0, i - 1));
+    rewindRef.current = setInterval(() => setIdx(i => Math.max(0, i - 1)), 60000 / wpm);
+  }, [chunks.length, wpm]);
+
+  const onRewindEnd = useCallback(e => {
+    e.stopPropagation();
+    clearInterval(rewindRef.current);
+  }, []);
+
+  const onFastFwdStart = useCallback(e => {
+    e.stopPropagation();
+    if (!chunks.length) return;
+    setIdx(i => Math.min(chunks.length - 1, i + 1));
+    fastFwdRef.current = setInterval(() => setIdx(i => Math.min(chunks.length - 1, i + 1)), 60000 / wpm);
+  }, [chunks.length, wpm]);
+
+  const onFastFwdEnd = useCallback(e => {
+    e.stopPropagation();
+    clearInterval(fastFwdRef.current);
   }, []);
 
   // Step back on tap-left, step forward on tap-right (portrait only, not playing)
@@ -771,13 +797,27 @@ export default function App() {
                 )}
 
                 {/* Stats row */}
-                <div className={`ui-layer ls-hide${uiFading?' ui-faded':''}`} style={{display:'flex',justifyContent:'space-between',padding:'9px 16px',fontSize:12,color:'#3a3a3a',flexShrink:0,gap:6}}>
+                <div className={`ui-layer ls-hide${uiFading?' ui-faded':''}`} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 16px',fontSize:12,color:'#3a3a3a',flexShrink:0,gap:6}}>
+                  <button
+                    onPointerDown={onRewindStart}
+                    onPointerUp={onRewindEnd}
+                    onPointerLeave={onRewindEnd}
+                    onPointerCancel={onRewindEnd}
+                    style={{background:'none', border:'none', color:'#2a2a2a', fontSize:18, cursor:'pointer', padding:'0', minWidth:44, minHeight:44, display:'flex', alignItems:'center', justifyContent:'flex-start', flexShrink:0}}
+                  >«</button>
                   <span>{totalWords.toLocaleString()}w</span>
                   <span>{minsLeft}m</span>
                   <span>{Math.round(progress)}%</span>
                   {activeText&&<button onClick={e=>{e.stopPropagation();saveArticle(activeTitle,activeText,urlInput,'');}} style={{padding:'3px 10px',border:'1px solid #2a2a4a',borderRadius:10,background:'transparent',color:'#8b7fff',fontSize:11,cursor:'pointer'}}>Save</button>}
                   {activeText&&<button onClick={e=>{e.stopPropagation();navigator.clipboard?.writeText(activeText);showToast('Copied!');}} style={{padding:'3px 10px',border:'1px solid #1a1a1a',borderRadius:10,background:'transparent',color:'#555',fontSize:11,cursor:'pointer'}}>Copy</button>}
                     {activeArticleUrl&&<a href={activeArticleUrl} target='_blank' rel='noreferrer' onClick={e=>e.stopPropagation()} style={{padding:'3px 10px',border:'1px solid #1a1a1a',borderRadius:10,color:'#555',fontSize:11,cursor:'pointer',textDecoration:'none'}}>Link</a>}
+                  <button
+                    onPointerDown={onFastFwdStart}
+                    onPointerUp={onFastFwdEnd}
+                    onPointerLeave={onFastFwdEnd}
+                    onPointerCancel={onFastFwdEnd}
+                    style={{background:'none', border:'none', color:'#2a2a2a', fontSize:18, cursor:'pointer', padding:'0', minWidth:44, minHeight:44, display:'flex', alignItems:'center', justifyContent:'flex-end', flexShrink:0}}
+                  >»</button>
                 </div>
               </div>
 
