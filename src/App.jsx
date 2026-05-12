@@ -76,9 +76,18 @@ const ALL_FEEDS = [
   { id:'hackaday',      name:'Hackaday',           url:'https://hackaday.com/feed/',                                 category:'Tech' },
   { id:'bookriot',      name:'Book Riot',          url:'https://bookriot.com/feed',                                  category:'Entertainment' },
   { id:'bookbrowse',    name:'BookBrowse',         url:'https://www.bookbrowse.com/rss/book_news.rss',               category:'Entertainment' },
+  // -- Premium (mostly paywalled — RSS gives headlines/summaries; full text via the fetch chain / bookmarklet) --
+  { id:'wsj',           name:'WSJ World News',     url:'https://feeds.a.dj.com/rss/RSSWorldNews.xml',                category:'Premium' },
+  { id:'nyt',           name:'New York Times',     url:'https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml',  category:'Premium' },
+  { id:'atlantic',      name:'The Atlantic',       url:'https://feeds.feedburner.com/TheAtlantic',                   category:'Premium' },
+  { id:'ft',            name:'Financial Times',    url:'https://www.ft.com/rss/home',                                category:'Premium' },
+  { id:'newyorker',     name:'The New Yorker',     url:'https://www.newyorker.com/feed/everything',                  category:'Premium' },
+  { id:'bloomberg',     name:'Bloomberg',          url:'https://feeds.bloomberg.com/news/rss.xml',                   category:'Premium' },
+  { id:'barrons',       name:"Barron's",           url:'https://www.barrons.com/rss/rssheadlines',                   category:'Premium' },
+  { id:'economist',     name:'The Economist',      url:'https://www.economist.com/feeds/print-sections/all-sections.xml', category:'Premium' },
 ];
 
-const CATEGORIES = ['All','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack','Custom'];
+const CATEGORIES = ['All','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack','Premium','Custom'];
 const SUPABASE_RSS  = 'https://reojrvyczjrdaobgnrod.supabase.co/functions/v1/rss';
 const SUPABASE_URL  = 'https://reojrvyczjrdaobgnrod.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlb2pydnljempyZGFvYmducm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzAyODQsImV4cCI6MjA5NDAwNjI4NH0.RziEy75n6MS6SNl_nUqLOVRSG19TNEta9AvzrT0BB14';
@@ -273,9 +282,27 @@ function useSetting(key) {
 }
 
 // -- TOKENIZER -----------------------------------------------------------------
+// Merge tiny words ("a", "to", "of"...) onto the next word so they don't flash alone.
+function pairShortWords(words) {
+  const out = [];
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const next = words[i + 1];
+    const stem = w.replace(/[.,!?;:]+$/, '');
+    const endsPunct = /[.,!?;:]$/.test(w);
+    if (next && !endsPunct && stem.length > 0 && stem.length <= 2) {
+      out.push(w + ' ' + next);
+      i++;
+    } else {
+      out.push(w);
+    }
+  }
+  return out;
+}
+
 function tokenize(text, chunkSize) {
   if (!text) return [];
-  const words = text.replace(/\s+/g,' ').trim().split(' ').filter(Boolean);
+  const words = pairShortWords(text.replace(/\s+/g,' ').trim().split(' ').filter(Boolean));
   const out = [];
   let i = 0;
   while (i < words.length) {
@@ -301,7 +328,7 @@ function splitOrp(word) {
   const stem = word.replace(/[.,!?;:]+$/, '');
   const punct = word.slice(stem.length);
   if (!stem) return { pre:'', orp: word.slice(0, 1) || '', post: word.slice(1) };
-  const i = Math.min(Math.max(0, Math.floor(stem.length * 0.3)), stem.length - 1);
+  const i = nudgeOffSpace(stem, Math.min(Math.max(0, Math.floor(stem.length * 0.3)), stem.length - 1));
   return { pre: stem.slice(0, i), orp: stem[i], post: stem.slice(i + 1) + punct };
 }
 
@@ -311,10 +338,15 @@ function OrpWord({ word, on, color }) {
   return <span>{pre}<span style={{color,fontWeight:600}}>{orp}</span>{post}</span>;
 }
 
+function nudgeOffSpace(s, idx) {
+  while (idx < s.length - 1 && /\s/.test(s[idx])) idx++;
+  return idx;
+}
+
 function SingleWordChunk({ word, font, baseSize, orpColor, orpOn, hashMarksOn }) {
   const s = word.replace(/[.,!?;:]+$/, '');
   const punct = word.slice(s.length);
-  const orpIdx = Math.max(0, Math.min(Math.floor(s.length * 0.35), s.length - 1));
+  const orpIdx = nudgeOffSpace(s, Math.max(0, Math.min(Math.floor(s.length * 0.35), s.length - 1)));
   const pre = s.slice(0, orpIdx);
   const orp = s[orpIdx] || '';
   const post = s.slice(orpIdx + 1) + punct;
@@ -325,15 +357,24 @@ function SingleWordChunk({ word, font, baseSize, orpColor, orpOn, hashMarksOn })
   const orpRef = useRef(null);
   const containerRef = useRef(null);
   const [orpCenter, setOrpCenter] = useState(null);
-
-  useEffect(() => {
+  const measureOrp = useCallback(() => {
     if (orpRef.current && containerRef.current) {
       const cr = containerRef.current.getBoundingClientRect();
       const or = orpRef.current.getBoundingClientRect();
       const center = or.left + or.width / 2 - cr.left;
       if (center > 0) setOrpCenter(center);
     }
-  });
+  }, []);
+  useEffect(() => { measureOrp(); }); // re-measure on each word
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => measureOrp());
+    ro.observe(el);
+    const onResize = () => measureOrp();
+    window.addEventListener('resize', onResize);
+    return () => { ro.disconnect(); window.removeEventListener('resize', onResize); };
+  }, [measureOrp]);
 
   return (
     <div ref={containerRef} style={{position:'absolute', inset:0, display:'flex', alignItems:'center', fontFamily:font, fontSize:scaledSize, fontWeight:500, letterSpacing:0.3, whiteSpace:'nowrap', userSelect:'none'}}>
@@ -621,6 +662,7 @@ export default function App() {
   const [playing, setPlaying] = useState(false);
   const [done, setDone] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [immersionHint, setImmersionHint] = useState(false);
   const [history, setHistory] = useState([]); // [{title, text}]
 
   // News
@@ -712,6 +754,13 @@ export default function App() {
           localStorage.setItem('speedr_onboarded', '1');
           setShowOnboarding(false);
         }
+        // Immersion mode: fade the chrome, show only the word on black
+        setIsFocused(true);
+        setImmersionHint(false);
+        setTimeout(() => {
+          setImmersionHint(true);
+          setTimeout(() => setImmersionHint(false), 2500);
+        }, 3000);
       }
     };
     window.addEventListener('message', onMsg);
@@ -866,10 +915,11 @@ export default function App() {
   const visibleItems = category==='All' ? feedItems : feedItems.filter(i=>i.category===category);
   const uiFading = isFocused && !landscape;
 
-  // Keep the status-bar / theme color pure black while reading
+  // Keep the status-bar / theme color pure black, and go full black behind the app while focused
   useEffect(() => {
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', uiFading ? '#000000' : '#000000');
+    if (meta) meta.setAttribute('content', '#000000');
+    document.documentElement.style.background = uiFading ? '#000000' : '#0d0d0d';
   }, [uiFading]);
 
   const bookmarkletCode = `javascript:(function(){
@@ -924,13 +974,13 @@ export default function App() {
       <div style={{position:'fixed',inset:0,display:'flex',flexDirection:'column',paddingTop:'env(safe-area-inset-top)',paddingLeft:'env(safe-area-inset-left)',paddingRight:'env(safe-area-inset-right)',background:uiFading?'#000000':'#0d0d0d',transition:'background 0.25s ease',overflow:'hidden',height:'100dvh'}}>
 
         {/* TOP BAR */}
-        <div className="ls-hide ui-layer" style={{flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px 10px',borderBottom:'1px solid #141414',opacity:uiFading?0.07:1,transition:'opacity 0.25s ease',pointerEvents:'auto'}}>
+        <div onClick={()=>{ if (uiFading) setIsFocused(false); }} className="ls-hide ui-layer" style={{flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px 10px',borderBottom:'1px solid #141414',opacity:uiFading?0.07:1,transition:'opacity 0.25s ease',pointerEvents:'auto'}}>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
             {/* Back button when came from news */}
             {tab==='reader' && activeTitle && prevNewsScroll > 0 && (
               <button onClick={goBackToNews} style={{background:'none',border:'none',color:'#8b7fff',cursor:'pointer',fontSize:20,padding:'0 4px 0 0',lineHeight:1}}>{'<'}</button>
             )}
-            <span style={{fontSize:20,fontWeight:500,letterSpacing:-0.8,color:'#f0f0f0'}}>speedr</span>
+            <img src="/icon-192.png" alt="speedr" style={{height:28, width:'auto', borderRadius:6}}/>
             {activeTitle && tab==='reader' && (
               <span style={{fontSize:12,color:'#444',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{activeTitle}</span>
             )}
@@ -939,7 +989,7 @@ export default function App() {
             {tab==='news' && <button onClick={()=>setShowSources(s=>!s)} style={showSources?pillActive:pill}>{showSources?'done':'sources'}</button>}
             {tab==='reader' && (
               <button
-                onClick={()=>{ if(chunks.length){ if(playing){setPlaying(false);setIsFocused(false);}else{if(idx>=chunks.length){setIdx(0);setDone(false);}setPlaying(true);setIsFocused(true);} } }}
+                onClick={(e)=>{ e.stopPropagation(); if(chunks.length){ if(playing){setPlaying(false);setIsFocused(false);}else{if(idx>=chunks.length){setIdx(0);setDone(false);}setPlaying(true);setIsFocused(true);} } }}
                 style={{...pill, color: chunks.length?(playing?'#fff':'#8b7fff'):'#333', borderColor: chunks.length?(playing?'#7c6af7':'#2a2a4a'):'#1a1a1a', background: playing?'#7c6af7':'transparent', cursor: chunks.length?'pointer':'default'}}
               >
                 {playing ? 'pause' : 'focus'}
@@ -1330,6 +1380,11 @@ export default function App() {
             )}
             <button onClick={finishOnboarding} style={{background:'none',border:'none',color:'#333',fontSize:13,cursor:'pointer',padding:0}}>Skip</button>
           </div>
+        </div>
+      )}
+      {immersionHint && uiFading && (
+        <div style={{position:'fixed',bottom:96,left:'50%',transform:'translateX(-50%)',background:'rgba(255,255,255,0.06)',color:'#888',padding:'7px 16px',borderRadius:18,fontSize:12,zIndex:280,whiteSpace:'nowrap',pointerEvents:'none',animation:'fadeIn 0.4s ease'}}>
+          tap to show controls
         </div>
       )}
       {toast && (

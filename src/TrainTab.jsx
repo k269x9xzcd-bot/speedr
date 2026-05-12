@@ -9,6 +9,11 @@ const BASELINE_WPM = 250;
 const SUPABASE_URL  = 'https://reojrvyczjrdaobgnrod.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlb2pydnljempyZGFvYmducm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzAyODQsImV4cCI6MjA5NDAwNjI4NH0.RziEy75n6MS6SNl_nUqLOVRSG19TNEta9AvzrT0BB14';
 
+const SEEN_KEY = 'speedr_seen_passages';
+function getSeen() { try { const a = JSON.parse(localStorage.getItem(SEEN_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } }
+function markSeen(id) { if (!id) return; try { const a = getSeen().filter(x => x !== id); a.unshift(id); localStorage.setItem(SEEN_KEY, JSON.stringify(a.slice(0, 50))); } catch {} }
+function passageKey(p) { return p ? (p.title || p.id) : null; }
+
 const TRACKS = ['All', 'Science', 'History', 'Philosophy', 'Business'];
 const TRACK_TOPICS = {
   Science:    ['Photosynthesis','Quantum_mechanics','DNA','Black_hole','Evolution','Vaccine','Climate_change','Neuroscience'],
@@ -63,21 +68,24 @@ function trimToSentences(text, maxWords = 220) {
   return slice.trim();
 }
 
-async function fetchWikipediaPassage(track, maxTries = 8) {
+async function fetchWikipediaPassage(track, seen = [], maxTries = 10) {
+  const seenSet = new Set(seen);
   const pool = [...topicsForTrack(track)].sort(() => Math.random() - 0.5);
-  for (let i = 0; i < Math.min(maxTries, pool.length); i++) {
-    const topic = pool[i];
+  for (const topic of pool.slice(0, maxTries)) {
+    if (seenSet.has(topic.replace(/_/g, ' '))) continue;
     try {
-      const r = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(topic), { headers: { Accept: 'application/json' } });
+      const r = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(topic), { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(4000) });
       if (!r.ok) continue;
       const data = await r.json();
+      const title = data.title || topic.replace(/_/g, ' ');
+      if (seenSet.has(title)) continue;
       let text = ((data && data.extract) || '').trim();
       if (!text) continue;
       if (text.split(/\s+/).filter(Boolean).length < 100) continue;
       text = trimToSentences(text, 220);
       const words = text.split(/\s+/).filter(Boolean).length;
       if (words < 100) continue;
-      return { id: 'wiki:' + topic, title: (data.title || topic.replace(/_/g, ' ')), text, words, track: track || 'All' };
+      return { id: 'wiki:' + topic, title, text, words, track: track || 'All' };
     } catch { /* try next topic */ }
   }
   return null;
@@ -339,19 +347,30 @@ function MiniReader({ text, targetWpm, onFinish, onReadingChange, hashMarksOn = 
   const orpRef = useRef(null);
   const containerRef = useRef(null);
   const [orpCenter, setOrpCenter] = useState(null);
-  useEffect(() => {
+  const measureOrp = useCallback(() => {
     if (orpRef.current && containerRef.current) {
       const cr = containerRef.current.getBoundingClientRect();
       const or = orpRef.current.getBoundingClientRect();
       const center = or.left + or.width / 2 - cr.left;
       if (center > 0) setOrpCenter(center);
     }
-  });
+  }, []);
+  useEffect(() => { measureOrp(); }); // re-measure on each word
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => measureOrp());
+    ro.observe(el);
+    const onResize = () => measureOrp();
+    window.addEventListener('resize', onResize);
+    return () => { ro.disconnect(); window.removeEventListener('resize', onResize); };
+  }, [measureOrp]);
 
   const w = words[Math.min(idx, words.length - 1)] || '';
   const stem = w.replace(/[.,!?;:]+$/, '');
   const punct = w.slice(stem.length);
-  const orpIdx = stem ? Math.max(0, Math.min(Math.floor(stem.length * 0.35), stem.length - 1)) : 0;
+  let orpIdx = stem ? Math.max(0, Math.min(Math.floor(stem.length * 0.35), stem.length - 1)) : 0;
+  while (orpIdx < stem.length - 1 && /\s/.test(stem[orpIdx])) orpIdx++;
   const pre = stem.slice(0, orpIdx);
   const orp = stem[orpIdx] || w[0] || '';
   const post = stem.slice(orpIdx + 1) + punct;
@@ -427,6 +446,7 @@ export default function TrainTab({ readerWpm }) {
   const [track, setTrack] = useState(() => { try { return localStorage.getItem(TRACK_KEY) || 'All'; } catch { return 'All'; } });
   const [remoteSessions, setRemoteSessions] = useState([]);
   const [reading, setReading] = useState(false);
+  const [offline, setOffline] = useState(false);
 
   const hasBaseline = !!(state.sessions && state.sessions.length > 0);
   const targetWpm = hasBaseline ? (state.target_wpm || BASELINE_WPM) : BASELINE_WPM;
@@ -474,31 +494,45 @@ export default function TrainTab({ readerWpm }) {
     });
   }, []);
 
-  const randomFallback = () => FALLBACK_PASSAGES[Math.floor(Math.random() * FALLBACK_PASSAGES.length)];
+  const randomFallback = (seen = []) => {
+    const seenSet = new Set(seen);
+    const fresh = FALLBACK_PASSAGES.filter(p => !seenSet.has(passageKey(p)));
+    const pool = fresh.length ? fresh : FALLBACK_PASSAGES;
+    return pool[Math.floor(Math.random() * pool.length)];
+  };
 
   const start = async () => {
     setPhase('loading');
+    setOffline(false);
     setActualWpm(0);
     setComp(0);
     setXpEarned(0);
     setQuestions([]);
     setAnswers([]);
     setSessionWpm(targetWpm);
-    let p = await fetchWikipediaPassage(track);
+    const seen = getSeen();
+    let p = await Promise.race([
+      fetchWikipediaPassage(track, seen).catch(() => null),
+      new Promise(res => setTimeout(() => res(null), 5000)),
+    ]);
     let final = null;
     if (p) final = await generateQuestions(p);
     if (!final || final.length < 3) {
-      // No live questions for the fetched article (or no article) — use a built-in passage with bundled questions.
-      p = randomFallback();
+      // No live article/questions — fall back to a built-in passage (avoid recently-seen ones).
+      if (!p) setOffline(true);
+      p = randomFallback(seen);
       final = BAKED[p.id];
     }
     const blank = new Array(final.length).fill(-1);
+    markSeen(passageKey(p));
     setPassage(p);
     setQuestions(final);
     setAnswers(blank);
     setPhase('reading');
     patchInProgress({ phase:'reading', passage:p, sessionWpm:targetWpm, actualWpm:0, questions:final, answers:blank });
   };
+
+  const skipArticle = () => { markSeen(passageKey(passage)); start(); };
 
   const resumeSession = () => {
     const ip = state.inProgress;
@@ -663,8 +697,8 @@ export default function TrainTab({ readerWpm }) {
         <>
           <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Preparing</div>
           <div style={{...card, padding:'40px 16px', display:'flex', flexDirection:'column', alignItems:'center', gap:14}}>
-            <div style={{fontFamily:mono, fontSize:13, color:'#8b7fff', letterSpacing:1, animation:'pulse 1.2s ease-in-out infinite'}}>FETCHING PASSAGE…</div>
-            <div style={{fontSize:12, color:'#3a3a3a'}}>{track === 'All' ? 'Pulling a fresh article and writing questions' : `Pulling a ${track.toLowerCase()} article and writing questions`}</div>
+            <div style={{fontFamily:mono, fontSize:13, color:'#8b7fff', letterSpacing:1, animation:'pulse 1.2s ease-in-out infinite'}}>{offline ? 'LOADING…' : 'FETCHING PASSAGE…'}</div>
+            <div style={{fontSize:12, color:'#3a3a3a'}}>{offline ? 'offline — using cached passage' : (track === 'All' ? 'Pulling a fresh article and writing questions' : `Pulling a ${track.toLowerCase()} article and writing questions`)}</div>
           </div>
         </>
       )}
@@ -680,6 +714,7 @@ export default function TrainTab({ readerWpm }) {
             <input type="range" min={100} max={600} step={10} value={sessionWpm} onChange={e=>setSessionWpm(+e.target.value)} style={{width:'100%', accentColor:'#7c6af7'}}/>
           </div>
           <MiniReader key={passage.id} text={passage.text} targetWpm={sessionWpm} onFinish={onReaderFinish} onReadingChange={setReading} hashMarksOn={true} orpColor="#e05252"/>
+          <button onClick={skipArticle} style={{...doneBtn, width:'100%', marginTop:12, opacity: reading ? 0 : 1, pointerEvents: reading ? 'none' : 'auto', transition:'opacity 0.3s ease'}}>New Article</button>
         </>
       )}
 
