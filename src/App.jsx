@@ -200,6 +200,7 @@ const DEFAULT_SETTINGS = {
   wpm: 280, chunkSize: 2, peripheralBefore: 0, peripheralAfter: 0,
   orpOn: true, orpColor: '#e05252', fontSize: 'medium',
   fontStyle: 'mono', variablePacing: true, showProgress: true,
+  hashMarksOn: true,
 };
 
 const FONT_MAP = {
@@ -296,11 +297,6 @@ function chunkDelay(chunk, baseMs, variable) {
 }
 
 // -- ORP DISPLAY ---------------------------------------------------------------
-function fontMaxPx(sizeKey) {
-  const m = (FONT_SIZE_MAP[sizeKey] || '').match(/(\d+)px\)\s*$/);
-  return m ? parseInt(m[1], 10) : 38;
-}
-
 function splitOrp(word) {
   const stem = word.replace(/[.,!?;:]+$/, '');
   const punct = word.slice(stem.length);
@@ -315,54 +311,51 @@ function OrpWord({ word, on, color }) {
   return <span>{pre}<span style={{color,fontWeight:600}}>{orp}</span>{post}</span>;
 }
 
-function ChunkDisplay({ chunk, settings, allChunks, idx }) {
+function ChunkDisplay({ chunk, settings }) {
   const font = FONT_MAP[settings.fontStyle];
   const baseSize = FONT_SIZE_MAP[settings.fontSize];
 
-  // Single-word chunk: fixed ORP anchor at ~35% from the left of the reading area.
   if (chunk.length === 1) {
     const word = chunk[0];
-    const scaledSize = word.length > 10
-      ? `clamp(18px, ${(6 - (word.length - 10) * 0.3).toFixed(2)}vw, ${Math.round(fontMaxPx(settings.fontSize) * 0.7)}px)`
+    const s = word.replace(/[.,!?;:]+$/, '');
+    const punct = word.slice(s.length);
+    const orpIdx = Math.max(0, Math.min(Math.floor(s.length * 0.35), s.length - 1));
+    const pre = s.slice(0, orpIdx);
+    const orp = s[orpIdx] || '';
+    const post = s.slice(orpIdx + 1) + punct;
+    const scaledSize = s.length > 11
+      ? `clamp(18px, ${Math.max(3, 7 - (s.length - 11) * 0.25)}vw, ${Math.max(22, 44 - (s.length - 11) * 2)}px)`
       : baseSize;
-    if (!settings.orpOn) {
-      return (
-        <div style={{fontFamily:font,fontSize:scaledSize,lineHeight:1.3,letterSpacing:0.3,color:'#f0f0f0',width:'100%',textAlign:'center',whiteSpace:'nowrap',overflow:'hidden'}}>{word}</div>
-      );
-    }
-    const { pre, orp, post } = splitOrp(word);
+
     return (
-      <div style={{display:'flex',flexDirection:'row',alignItems:'center',justifyContent:'center',width:'100%',position:'relative',fontFamily:font,fontSize:scaledSize,lineHeight:1.3,letterSpacing:0.3,whiteSpace:'nowrap',overflow:'hidden'}}>
-        <span style={{flex:'0 0 35%',textAlign:'right',paddingRight:2,color:'#f0f0f0',whiteSpace:'nowrap',overflow:'hidden'}}>{pre}</span>
-        <span style={{flex:'0 0 auto',textAlign:'center',color:settings.orpColor,fontWeight:600}}>{orp}</span>
-        <span style={{flex:'0 0 65%',textAlign:'left',paddingLeft:2,color:'#f0f0f0',whiteSpace:'nowrap',overflow:'hidden'}}>{post}</span>
+      <div style={{position:'relative', width:'100%', display:'flex', alignItems:'center', fontFamily:font, fontSize:scaledSize, fontWeight:500, letterSpacing:0.3, whiteSpace:'nowrap', userSelect:'none'}}>
+        {/* Hash marks */}
+        {settings.hashMarksOn && (
+          <>
+            <div style={{position:'absolute', left:'35%', top:0, bottom:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-start', paddingTop:8, gap:3, pointerEvents:'none', zIndex:1}}>
+              <div style={{width:2, height:14, borderRadius:1, background:settings.orpColor, opacity:0.7}}/>
+              <div style={{width:2, height:7, borderRadius:1, background:settings.orpColor, opacity:0.35}}/>
+            </div>
+            <div style={{position:'absolute', left:'35%', top:0, bottom:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end', paddingBottom:8, gap:3, pointerEvents:'none', zIndex:1}}>
+              <div style={{width:2, height:7, borderRadius:1, background:settings.orpColor, opacity:0.35}}/>
+              <div style={{width:2, height:14, borderRadius:1, background:settings.orpColor, opacity:0.7}}/>
+            </div>
+          </>
+        )}
+        {/* Word split into pre / ORP / post anchored at 35% */}
+        <span style={{flex:'0 0 35%', textAlign:'right', color:'#f0f0f0', paddingRight:1}}>{pre}</span>
+        <span style={{flex:'0 0 auto', color: settings.orpOn ? settings.orpColor : '#f0f0f0', fontWeight:600}}>{orp}</span>
+        <span style={{flex:'0 0 65%', textAlign:'left', color:'#f0f0f0', paddingLeft:1}}>{post}</span>
       </div>
     );
   }
 
-  // Multi-word chunk: centered, single line, optional peripheral context words.
-  const before = [], after = [];
-  if (settings.peripheralBefore > 0) {
-    let wi = idx - 1, count = 0;
-    while (wi >= 0 && count < settings.peripheralBefore) {
-      allChunks[wi].forEach(w => { if (count < settings.peripheralBefore) { before.unshift(w); count++; } });
-      wi--;
-    }
-  }
-  if (settings.peripheralAfter > 0) {
-    let wi = idx + 1, count = 0;
-    while (wi < allChunks.length && count < settings.peripheralAfter) {
-      allChunks[wi].forEach(w => { if (count < settings.peripheralAfter) { after.push(w); count++; } });
-      wi++;
-    }
-  }
+  // Multi-word chunk — centered, no anchor, no hashmarks
+  const font2 = FONT_MAP[settings.fontStyle];
+  const size2 = FONT_SIZE_MAP[settings.fontSize];
   return (
-    <div style={{fontFamily:font,fontSize:baseSize,textAlign:'center',lineHeight:1.3,letterSpacing:0.3,display:'flex',alignItems:'center',justifyContent:'center',gap:'0.35em',whiteSpace:'nowrap',overflow:'hidden',width:'100%'}}>
-      {before.length > 0 && <span style={{color:'#2e2e2e',fontSize:'0.6em',flexShrink:0}}>{before.join(' ')}</span>}
-      <span style={{color:'#f0f0f0',whiteSpace:'nowrap'}}>
-        {chunk.map((w,i) => <React.Fragment key={i}>{i>0&&' '}<OrpWord word={w} on={settings.orpOn} color={settings.orpColor}/></React.Fragment>)}
-      </span>
-      {after.length > 0 && <span style={{color:'#2e2e2e',fontSize:'0.6em',flexShrink:0}}>{after.join(' ')}</span>}
+    <div style={{fontFamily:font2, fontSize:size2, textAlign:'center', lineHeight:1.3, letterSpacing:0.3, display:'flex', alignItems:'center', justifyContent:'center', gap:'0.35em', flexWrap:'nowrap', whiteSpace:'nowrap', color:'#f0f0f0'}}>
+      {chunk.map((w,i) => <React.Fragment key={i}>{i>0&&' '}<OrpWord word={w} on={settings.orpOn} color={settings.orpColor}/></React.Fragment>)}
     </div>
   );
 }
@@ -643,8 +636,9 @@ export default function App() {
   const [fontStyle, setFontStyle] = useSetting('fontStyle');
   const [variablePacing, setVariablePacing] = useSetting('variablePacing');
   const [showProgress, setShowProgress] = useSetting('showProgress');
+  const [hashMarksOn, setHashMarksOn] = useSetting('hashMarksOn');
 
-  const settings = { wpm, chunkSize, peripheralBefore, peripheralAfter, orpOn, orpColor, fontSize, fontStyle, variablePacing, showProgress };
+  const settings = { wpm, chunkSize, peripheralBefore, peripheralAfter, orpOn, orpColor, fontSize, fontStyle, variablePacing, showProgress, hashMarksOn };
 
   const landscape = useOrientation();
   const timerRef = useRef(null);
@@ -960,7 +954,7 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="ls-words" style={{width:'100%'}}>
-                      <ChunkDisplay chunk={currentChunk} settings={settings} allChunks={chunks} idx={Math.min(idx,chunks.length-1)}/>
+                      <ChunkDisplay chunk={currentChunk} settings={settings}/>
                     </div>
                   )}
                 </div>
@@ -1170,6 +1164,9 @@ export default function App() {
               <div style={{...card,marginBottom:16}}>
                 <SettingRow label="ORP highlight" subtitle="Marks recognition point">
                   <Toggle on={orpOn} onChange={setOrpOn}/>
+                </SettingRow>
+                <SettingRow label="Focus hashmarks" subtitle="Vertical anchor for eye lock">
+                  <Toggle on={hashMarksOn} onChange={setHashMarksOn}/>
                 </SettingRow>
                 <SettingRow label="Highlight color">
                   <div style={{display:'flex',gap:10}}>
