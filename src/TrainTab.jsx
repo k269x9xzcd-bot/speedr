@@ -291,7 +291,7 @@ async function generateQuestions(passage) {
 
 const doneBtn = { padding:'12px 16px', border:'1px solid #1a1a1a', borderRadius:12, fontSize:14, fontWeight:300, cursor:'pointer', background:'transparent', color:'#555', whiteSpace:'nowrap', minHeight:44 };
 
-function MiniReader({ text, targetWpm, onFinish, onReadingChange }) {
+function MiniReader({ text, targetWpm, onFinish, onReadingChange, hashMarksOn = true, orpColor = '#e05252' }) {
   const words = useMemo(() => text.split(/\s+/).filter(Boolean), [text]);
   const [idx, setIdx] = useState(0);
   const [started, setStarted] = useState(false);
@@ -336,11 +336,25 @@ function MiniReader({ text, targetWpm, onFinish, onReadingChange }) {
   const isReading = started && !paused;
   useEffect(() => { if (onReadingChange) onReadingChange(isReading); }, [isReading, onReadingChange]);
 
+  const orpRef = useRef(null);
+  const containerRef = useRef(null);
+  const [orpCenter, setOrpCenter] = useState(null);
+  useEffect(() => {
+    if (orpRef.current && containerRef.current) {
+      const cr = containerRef.current.getBoundingClientRect();
+      const or = orpRef.current.getBoundingClientRect();
+      const center = or.left + or.width / 2 - cr.left;
+      if (center > 0) setOrpCenter(center);
+    }
+  });
+
   const w = words[Math.min(idx, words.length - 1)] || '';
-  const orpIdx = Math.min(Math.max(1, Math.floor(w.length / 3)), Math.max(0, w.length - 1));
-  const pre = w.slice(0, orpIdx);
-  const orp = w[orpIdx] || '';
-  const post = w.slice(orpIdx + 1);
+  const stem = w.replace(/[.,!?;:]+$/, '');
+  const punct = w.slice(stem.length);
+  const orpIdx = stem ? Math.max(0, Math.min(Math.floor(stem.length * 0.35), stem.length - 1)) : 0;
+  const pre = stem.slice(0, orpIdx);
+  const orp = stem[orpIdx] || w[0] || '';
+  const post = stem.slice(orpIdx + 1) + punct;
   const progress = Math.min(100, (idx / words.length) * 100);
 
   return (
@@ -348,14 +362,28 @@ function MiniReader({ text, targetWpm, onFinish, onReadingChange }) {
       <div style={{width:'100%', height:3, background:'#1a1a1a', borderRadius:2, overflow:'hidden'}}>
         <div style={{width:progress+'%', height:'100%', background:'#7c6af7', transition:'width 0.1s linear'}}/>
       </div>
-      <div style={{minHeight:88, display:'flex', alignItems:'center', justifyContent:'center', fontFamily:mono, fontSize:'clamp(28px,7vw,44px)', fontWeight:500, letterSpacing:0.2, color:'#e8e8e8'}}>
-        <span>{pre}</span><span style={{color:'#e05252'}}>{orp}</span><span>{post}</span>
+      <div ref={containerRef} style={{position:'relative', width:'100%', minHeight:88, display:'flex', alignItems:'center', fontFamily:mono, fontSize:'clamp(28px,7vw,44px)', fontWeight:500, letterSpacing:0.2, color:'#e8e8e8', whiteSpace:'nowrap'}}>
+        {hashMarksOn && orpCenter !== null && (
+          <>
+            <div style={{position:'absolute', left:orpCenter, top:0, height:'calc(50% - 20px)', transform:'translateX(-50%)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end', gap:3, pointerEvents:'none', zIndex:1}}>
+              <div style={{width:2, height:7, borderRadius:1, background:orpColor, opacity:0.35}}/>
+              <div style={{width:2, height:14, borderRadius:1, background:orpColor, opacity:0.75}}/>
+            </div>
+            <div style={{position:'absolute', left:orpCenter, bottom:0, height:'calc(50% - 20px)', transform:'translateX(-50%)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-start', gap:3, pointerEvents:'none', zIndex:1}}>
+              <div style={{width:2, height:14, borderRadius:1, background:orpColor, opacity:0.75}}/>
+              <div style={{width:2, height:7, borderRadius:1, background:orpColor, opacity:0.35}}/>
+            </div>
+          </>
+        )}
+        <span style={{flex:'0 0 35%', textAlign:'right', paddingRight:1}}>{pre}</span>
+        <span ref={orpRef} style={{flex:'0 0 auto', color:orpColor, fontWeight:600}}>{orp}</span>
+        <span style={{flex:'0 0 65%', textAlign:'left', paddingLeft:1}}>{post}</span>
       </div>
-      <div style={{display:'flex', gap:10, opacity: isReading ? 0.15 : 1, transition:'opacity 0.3s ease'}}>
+      <div style={{display:'flex', gap:10, opacity: isReading ? 0.12 : 1, transition:'opacity 0.3s ease'}}>
         <button onClick={()=>{ if (window.confirm('Are you sure? Your progress will be lost.')) finish(); }} style={doneBtn}>Done</button>
         <button onClick={paused ? begin : ()=>setPaused(true)} style={btnGhost}>{!started ? 'Start Reading' : (paused ? 'Resume' : 'Pause')}</button>
       </div>
-      <div style={{fontSize:11, color:'#3a3a3a', letterSpacing:1, opacity: isReading ? 0.15 : 1, transition:'opacity 0.3s ease'}}>{Math.round(targetWpm)} WPM TARGET</div>
+      <div style={{fontSize:11, color:'#3a3a3a', letterSpacing:1, opacity: isReading ? 0 : 1, transition:'opacity 0.3s ease'}}>{Math.round(targetWpm)} WPM TARGET</div>
     </div>
   );
 }
@@ -644,14 +672,14 @@ export default function TrainTab({ readerWpm }) {
       {phase === 'reading' && passage && (
         <>
           <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px', opacity: reading ? 0 : 1, pointerEvents: reading ? 'none' : 'auto', transition:'opacity 0.3s ease'}}>{passage.title}{passage.words ? ` · ${passage.words} words` : ''}</div>
-          <div style={{...card, padding:16, marginBottom:12}}>
+          <div style={{...card, padding:16, marginBottom:12, opacity: reading ? 0 : 1, pointerEvents: reading ? 'none' : 'auto', transition:'opacity 0.3s ease'}}>
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
               <div style={{fontSize:13, color:'#c0c0c0'}}>Speed</div>
               <div style={{fontSize:14, color:'#8b7fff', fontFamily:mono}}>{sessionWpm} WPM</div>
             </div>
             <input type="range" min={100} max={600} step={10} value={sessionWpm} onChange={e=>setSessionWpm(+e.target.value)} style={{width:'100%', accentColor:'#7c6af7'}}/>
           </div>
-          <MiniReader key={passage.id} text={passage.text} targetWpm={sessionWpm} onFinish={onReaderFinish} onReadingChange={setReading}/>
+          <MiniReader key={passage.id} text={passage.text} targetWpm={sessionWpm} onFinish={onReaderFinish} onReadingChange={setReading} hashMarksOn={true} orpColor="#e05252"/>
         </>
       )}
 
