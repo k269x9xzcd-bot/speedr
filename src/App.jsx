@@ -328,26 +328,25 @@ function SingleWordChunk({ word, font, baseSize, orpColor, orpOn, hashMarksOn })
 
   useEffect(() => {
     if (orpRef.current && containerRef.current) {
-      const containerRect = containerRef.current.getBoundingClientRect();
-      const orpRect = orpRef.current.getBoundingClientRect();
-      const center = orpRect.left + orpRect.width / 2 - containerRect.left;
-      setOrpCenter(center);
+      const cr = containerRef.current.getBoundingClientRect();
+      const or = orpRef.current.getBoundingClientRect();
+      const center = or.left + or.width / 2 - cr.left;
+      if (center > 0) setOrpCenter(center);
     }
   });
 
-  const markLeft = orpCenter !== null ? orpCenter : '35%';
   return (
-    <div ref={containerRef} style={{position:'relative', width:'100%', display:'flex', alignItems:'center', fontFamily:font, fontSize:scaledSize, fontWeight:500, letterSpacing:0.3, whiteSpace:'nowrap', userSelect:'none'}}>
-      {/* Hash marks — centered over the measured ORP letter */}
-      {hashMarksOn && (
+    <div ref={containerRef} style={{position:'absolute', inset:0, display:'flex', alignItems:'center', fontFamily:font, fontSize:scaledSize, fontWeight:500, letterSpacing:0.3, whiteSpace:'nowrap', userSelect:'none'}}>
+      {/* Hash marks — vertical anchor reaching toward the stage edges, centered on the measured ORP letter */}
+      {hashMarksOn && orpCenter !== null && (
         <>
-          <div style={{position:'absolute', left:markLeft, transform:'translateX(-50%)', top:0, bottom:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-start', paddingTop:8, gap:3, pointerEvents:'none', zIndex:1}}>
-            <div style={{width:2, height:14, borderRadius:1, background:orpColor, opacity:0.7}}/>
+          <div style={{position:'absolute', left:orpCenter, top:0, height:'calc(50% - 20px)', transform:'translateX(-50%)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end', gap:3, pointerEvents:'none', zIndex:1}}>
             <div style={{width:2, height:7, borderRadius:1, background:orpColor, opacity:0.35}}/>
+            <div style={{width:2, height:14, borderRadius:1, background:orpColor, opacity:0.75}}/>
           </div>
-          <div style={{position:'absolute', left:markLeft, transform:'translateX(-50%)', top:0, bottom:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-end', paddingBottom:8, gap:3, pointerEvents:'none', zIndex:1}}>
+          <div style={{position:'absolute', left:orpCenter, bottom:0, height:'calc(50% - 20px)', transform:'translateX(-50%)', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'flex-start', gap:3, pointerEvents:'none', zIndex:1}}>
+            <div style={{width:2, height:14, borderRadius:1, background:orpColor, opacity:0.75}}/>
             <div style={{width:2, height:7, borderRadius:1, background:orpColor, opacity:0.35}}/>
-            <div style={{width:2, height:14, borderRadius:1, background:orpColor, opacity:0.7}}/>
           </div>
         </>
       )}
@@ -736,28 +735,6 @@ export default function App() {
 
   useEffect(() => { if (tab==='news') loadFeeds(activeFeeds); if (tab==='library') loadLibrary(); }, [tab]);
 
-  // Hold to read
-  const onHoldStart = useCallback(e => {
-    if (!chunks.length) return;
-    e.preventDefault(); holdRef.current = true;
-    if (idx >= chunks.length) { setIdx(0); setDone(false); }
-    setPlaying(true);
-  }, [chunks.length, idx]);
-
-  const onHoldEnd = useCallback(e => {
-    if (!holdRef.current) return;
-    e.preventDefault(); holdRef.current = false; setPlaying(false);
-  }, []);
-
-  // Tap the stage to toggle play/pause (portrait only; landscape uses hold).
-  // The left/right seek zones are invisible overlay divs that stopPropagation.
-  const onStageTap = useCallback(e => {
-    if (landscape) return; // landscape uses hold
-    if (playing) { setPlaying(false); return; }
-    if (idx >= chunks.length) { setIdx(0); setDone(false); }
-    setPlaying(true);
-  }, [landscape, playing, idx, chunks.length]);
-
   const handleFetchUrl = async () => {
     if (!urlInput.trim()) return;
     setFetchErr(''); setFetching(true);
@@ -921,24 +898,27 @@ export default function App() {
 
               {/* READER STAGE - fills available space */}
               <div
-                onPointerDown={onHoldStart}
-                onPointerUp={onHoldEnd}
-                onPointerCancel={onHoldEnd}
-                onPointerLeave={onHoldEnd}
-                onClick={onStageTap}
                 className={landscape ? 'ls-reader' : ''}
                 style={{...card,flex:1,minHeight:landscape?0:180,cursor:'pointer',touchAction:'none',display:'flex',flexDirection:'column',marginBottom:0,position:'relative'}}
               >
+                {/* LEFT ZONE — rewind */}
                 <div
-                  onClick={e => e.stopPropagation()}
                   onPointerDown={e => { e.stopPropagation(); if (!chunks.length) return; setIdx(i => Math.max(0, i - 1)); rewindRef.current = setInterval(() => setIdx(i => Math.max(0, i - 1)), 60000 / wpm); }}
                   onPointerUp={e => { e.stopPropagation(); clearInterval(rewindRef.current); }}
                   onPointerLeave={e => { e.stopPropagation(); clearInterval(rewindRef.current); }}
                   onPointerCancel={e => { e.stopPropagation(); clearInterval(rewindRef.current); }}
                   style={{position:'absolute', left:0, top:0, width:'20%', height:'100%', zIndex:10, touchAction:'none'}}
                 />
+                {/* MIDDLE ZONE — hold to read / tap to pause */}
                 <div
-                  onClick={e => e.stopPropagation()}
+                  onPointerDown={e => { if (!chunks.length) return; e.preventDefault(); holdRef.current = true; if (idx >= chunks.length) { setIdx(0); setDone(false); } setPlaying(true); }}
+                  onPointerUp={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); }}
+                  onPointerLeave={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); }}
+                  onPointerCancel={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); }}
+                  style={{position:'absolute', left:'20%', top:0, width:'50%', height:'100%', zIndex:10, touchAction:'none'}}
+                />
+                {/* RIGHT ZONE — fast forward */}
+                <div
                   onPointerDown={e => { e.stopPropagation(); if (!chunks.length) return; setIdx(i => Math.min(chunks.length - 1, i + 1)); fastFwdRef.current = setInterval(() => setIdx(i => Math.min(chunks.length - 1, i + 1)), 60000 / wpm); }}
                   onPointerUp={e => { e.stopPropagation(); clearInterval(fastFwdRef.current); }}
                   onPointerLeave={e => { e.stopPropagation(); clearInterval(fastFwdRef.current); }}
