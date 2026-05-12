@@ -553,40 +553,13 @@ export default function App() {
     e.preventDefault(); holdRef.current = false; setPlaying(false);
   }, []);
 
-  const onRewindStart = useCallback(e => {
-    e.stopPropagation();
-    if (!chunks.length) return;
-    setIdx(i => Math.max(0, i - 1));
-    rewindRef.current = setInterval(() => setIdx(i => Math.max(0, i - 1)), 60000 / wpm);
-  }, [chunks.length, wpm]);
-
-  const onRewindEnd = useCallback(e => {
-    e.stopPropagation();
-    clearInterval(rewindRef.current);
-  }, []);
-
-  const onFastFwdStart = useCallback(e => {
-    e.stopPropagation();
-    if (!chunks.length) return;
-    setIdx(i => Math.min(chunks.length - 1, i + 1));
-    fastFwdRef.current = setInterval(() => setIdx(i => Math.min(chunks.length - 1, i + 1)), 60000 / wpm);
-  }, [chunks.length, wpm]);
-
-  const onFastFwdEnd = useCallback(e => {
-    e.stopPropagation();
-    clearInterval(fastFwdRef.current);
-  }, []);
-
-  // Step back on tap-left, step forward on tap-right (portrait only, not playing)
+  // Tap the stage to toggle play/pause (portrait only; landscape uses hold).
+  // The left/right seek zones are invisible overlay divs that stopPropagation.
   const onStageTap = useCallback(e => {
     if (landscape) return; // landscape uses hold
     if (playing) { setPlaying(false); return; }
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const third = rect.width / 3;
-    if (x < third) { setIdx(i => Math.max(0, i-3)); }
-    else if (x > third*2) { setIdx(i => Math.min(chunks.length-1, i+3)); }
-    else { if (idx >= chunks.length) { setIdx(0); setDone(false); } setPlaying(true); }
+    if (idx >= chunks.length) { setIdx(0); setDone(false); }
+    setPlaying(true);
   }, [landscape, playing, idx, chunks.length]);
 
   const handleFetchUrl = async () => {
@@ -758,9 +731,24 @@ export default function App() {
                 onPointerLeave={onHoldEnd}
                 onClick={onStageTap}
                 className={landscape ? 'ls-reader' : ''}
-                style={{...card,flex:1,minHeight:landscape?0:180,cursor:'pointer',touchAction:'none',display:'flex',flexDirection:'column',marginBottom:0}}
+                style={{...card,flex:1,minHeight:landscape?0:180,cursor:'pointer',touchAction:'none',display:'flex',flexDirection:'column',marginBottom:0,position:'relative'}}
               >
-
+                <div
+                  onClick={e => e.stopPropagation()}
+                  onPointerDown={e => { e.stopPropagation(); if (!chunks.length) return; setIdx(i => Math.max(0, i - 1)); rewindRef.current = setInterval(() => setIdx(i => Math.max(0, i - 1)), 60000 / wpm); }}
+                  onPointerUp={e => { e.stopPropagation(); clearInterval(rewindRef.current); }}
+                  onPointerLeave={e => { e.stopPropagation(); clearInterval(rewindRef.current); }}
+                  onPointerCancel={e => { e.stopPropagation(); clearInterval(rewindRef.current); }}
+                  style={{position:'absolute', left:0, top:0, width:'20%', height:'100%', zIndex:10, touchAction:'none'}}
+                />
+                <div
+                  onClick={e => e.stopPropagation()}
+                  onPointerDown={e => { e.stopPropagation(); if (!chunks.length) return; setIdx(i => Math.min(chunks.length - 1, i + 1)); fastFwdRef.current = setInterval(() => setIdx(i => Math.min(chunks.length - 1, i + 1)), 60000 / wpm); }}
+                  onPointerUp={e => { e.stopPropagation(); clearInterval(fastFwdRef.current); }}
+                  onPointerLeave={e => { e.stopPropagation(); clearInterval(fastFwdRef.current); }}
+                  onPointerCancel={e => { e.stopPropagation(); clearInterval(fastFwdRef.current); }}
+                  style={{position:'absolute', right:0, top:0, width:'30%', height:'100%', zIndex:10, touchAction:'none'}}
+                />
 
                 <div ref={wordRef} style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 24px',position:'relative'}}>
                   {fetching ? (
@@ -799,26 +787,12 @@ export default function App() {
 
                 {/* Stats row */}
                 <div className={`ui-layer ls-hide${uiFading?' ui-faded':''}`} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 16px',fontSize:12,color:'#3a3a3a',flexShrink:0,gap:6}}>
-                  <button
-                    onPointerDown={onRewindStart}
-                    onPointerUp={onRewindEnd}
-                    onPointerLeave={onRewindEnd}
-                    onPointerCancel={onRewindEnd}
-                    style={{background:'none', border:'none', color:'#2a2a2a', fontSize:18, cursor:'pointer', padding:'0', minWidth:44, minHeight:44, display:'flex', alignItems:'center', justifyContent:'flex-start', flexShrink:0}}
-                  >«</button>
                   <span>{totalWords.toLocaleString()}w</span>
                   <span>{minsLeft}m</span>
                   <span>{Math.round(progress)}%</span>
                   {activeText&&<button onClick={e=>{e.stopPropagation();saveArticle(activeTitle,activeText,urlInput,'');}} style={{padding:'3px 10px',border:'1px solid #2a2a4a',borderRadius:10,background:'transparent',color:'#8b7fff',fontSize:11,cursor:'pointer'}}>Save</button>}
                   {activeText&&<button onClick={e=>{e.stopPropagation();navigator.clipboard?.writeText(activeText);showToast('Copied!');}} style={{padding:'3px 10px',border:'1px solid #1a1a1a',borderRadius:10,background:'transparent',color:'#555',fontSize:11,cursor:'pointer'}}>Copy</button>}
                     {activeArticleUrl&&<a href={activeArticleUrl} target='_blank' rel='noreferrer' onClick={e=>e.stopPropagation()} style={{padding:'3px 10px',border:'1px solid #1a1a1a',borderRadius:10,color:'#555',fontSize:11,cursor:'pointer',textDecoration:'none'}}>Link</a>}
-                  <button
-                    onPointerDown={onFastFwdStart}
-                    onPointerUp={onFastFwdEnd}
-                    onPointerLeave={onFastFwdEnd}
-                    onPointerCancel={onFastFwdEnd}
-                    style={{background:'none', border:'none', color:'#2a2a2a', fontSize:18, cursor:'pointer', padding:'0', minWidth:44, minHeight:44, display:'flex', alignItems:'center', justifyContent:'flex-end', flexShrink:0}}
-                  >»</button>
                 </div>
               </div>
 
