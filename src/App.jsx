@@ -8,6 +8,11 @@ function decodeHtmlEntities(str) {
   return txt.value;
 }
 
+function feedFavicon(url) {
+  try { return 'https://www.google.com/s2/favicons?domain=' + new URL(url).hostname + '&sz=64'; }
+  catch { return ''; }
+}
+
 // -- FEEDS ---------------------------------------------------------------------
 const ALL_FEEDS = [
   { id:'npr-us',       name:'NPR News',           url:'https://feeds.npr.org/1001/rss.xml',                         category:'US' },
@@ -40,6 +45,37 @@ const ALL_FEEDS = [
   { id:'verge-tech',   name:'The Verge',          url:'https://www.theverge.com/rss/index.xml',                     category:'Tech' },
   { id:'flipboard-news',name:'Flipboard News',    url:'https://flipboard.com/topic/news.rss',                       category:'US' },
   { id:'flipboard-tech',name:'Flipboard Tech',    url:'https://flipboard.com/topic/tech.rss',                       category:'Tech' },
+  // -- additional feeds (sourced from rumca-js/RSS-Link-Database-2025, verified) --
+  { id:'abc-us',        name:'ABC News',           url:'http://feeds.abcnews.com/abcnews/topstories',                category:'US' },
+  { id:'cnn-intl',      name:'CNN',                url:'http://rss.cnn.com/rss/edition.rss',                         category:'US' },
+  { id:'guardian-us',   name:'The Guardian US',    url:'https://www.theguardian.com/us-news/rss',                    category:'US' },
+  { id:'skynews-world', name:'Sky News World',     url:'https://feeds.skynews.com/feeds/rss/world.xml',              category:'World' },
+  { id:'bbc-news',      name:'BBC News',           url:'https://feeds.bbci.co.uk/news/rss.xml',                      category:'World' },
+  { id:'bbc-asia',      name:'BBC Asia',           url:'https://feeds.bbci.co.uk/news/world/asia/rss.xml',           category:'World' },
+  { id:'bbc-europe',    name:'BBC Europe',         url:'https://feeds.bbci.co.uk/news/world/europe/rss.xml',         category:'World' },
+  { id:'bbc-africa',    name:'BBC Africa',         url:'https://feeds.bbci.co.uk/news/world/africa/rss.xml',         category:'World' },
+  { id:'bbc-me',        name:'BBC Middle East',    url:'https://feeds.bbci.co.uk/news/world/middle_east/rss.xml',    category:'World' },
+  { id:'scmp',          name:'South China Morning Post', url:'https://www.scmp.com/rss/4/feed',                      category:'World' },
+  { id:'batimes',       name:'Buenos Aires Times', url:'https://www.batimes.com.ar/feed',                            category:'World' },
+  { id:'guardian-world',name:'The Guardian World', url:'https://www.theguardian.com/world/rss',                      category:'World' },
+  { id:'thehill',       name:'The Hill',           url:'https://thehill.com/feed',                                   category:'Politics' },
+  { id:'politico-eu',   name:'Politico EU',        url:'https://www.politico.eu/feed',                               category:'Politics' },
+  { id:'telegraph-biz', name:'Telegraph Business', url:'https://www.telegraph.co.uk/business/rss.xml',               category:'Business' },
+  { id:'wired-biz',     name:'Wired Business',     url:'https://www.wired.com/feed/category/business/latest/rss',    category:'Business' },
+  { id:'science-mag',   name:'Science Magazine',   url:'https://www.science.org/rss/news_current.xml',               category:'Science' },
+  { id:'sciencedaily',  name:'ScienceDaily',       url:'https://www.sciencedaily.com/rss/all.xml',                   category:'Science' },
+  { id:'physorg',       name:'Phys.org',           url:'https://phys.org/rss-feed',                                  category:'Science' },
+  { id:'popsci',        name:'Popular Science',    url:'https://www.popsci.com/feed',                                category:'Science' },
+  { id:'sciencenews',   name:'Science News',       url:'https://www.sciencenews.org/feed',                           category:'Science' },
+  { id:'smithsonian',   name:'Smithsonian',        url:'https://www.smithsonianmag.com/rss/latest_articles/',        category:'Science' },
+  { id:'404media',      name:'404 Media',          url:'https://www.404media.co/rss',                                category:'Tech' },
+  { id:'androidauth',   name:'Android Authority',  url:'https://www.androidauthority.com/feed',                      category:'Tech' },
+  { id:'engadget',      name:'Engadget',           url:'https://www.engadget.com/rss.xml',                           category:'Tech' },
+  { id:'eff',           name:'EFF Deeplinks',      url:'https://www.eff.org/rss/updates.xml',                        category:'Tech' },
+  { id:'eetimes',       name:'EE Times',           url:'https://eetimes.com/feed',                                   category:'Tech' },
+  { id:'hackaday',      name:'Hackaday',           url:'https://hackaday.com/feed/',                                 category:'Tech' },
+  { id:'bookriot',      name:'Book Riot',          url:'https://bookriot.com/feed',                                  category:'Entertainment' },
+  { id:'bookbrowse',    name:'BookBrowse',         url:'https://www.bookbrowse.com/rss/book_news.rss',               category:'Entertainment' },
 ];
 
 const CATEGORIES = ['All','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack'];
@@ -979,8 +1015,12 @@ export default function App() {
                     <div style={{color:'#222',fontSize:14,marginBottom:12}}>No articles</div>
                     <button style={btnPrimary} onClick={()=>loadFeeds(activeFeeds,true)}>Refresh</button>
                   </div>
-                ) : visibleItems.map((item,i) => (
+                ) : visibleItems.map((item,i) => {
+                  const feed = allFeeds.find(f => f.id === item.feedId || f.name === item.source);
+                  const fav = feed ? feedFavicon(feed.url) : '';
+                  return (
                   <div key={i} onClick={()=>handleReadArticle(item)} style={{padding:'14px 16px',borderBottom:i<visibleItems.length-1?'1px solid #111':'none',display:'flex',gap:12,cursor:'pointer',WebkitTapHighlightColor:'transparent'}}>
+                    {fav && <img src={fav} alt="" width={18} height={18} loading="lazy" onError={e=>{e.currentTarget.style.display='none';}} style={{flexShrink:0,alignSelf:'flex-start',marginTop:2,borderRadius:4,opacity:0.85}}/>}
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:11,color:'#7c6af7',marginBottom:4,fontWeight:500,letterSpacing:0.3}}>{item.source} &nbsp; {timeAgo(item.pubDate)}</div>
                       <div style={{fontSize:15,color:'#e0e0e0',lineHeight:1.45,fontWeight:400}}>{item.title}</div>
@@ -988,7 +1028,8 @@ export default function App() {
                     </div>
                     <div style={{color:'#2a2a2a',fontSize:16,flexShrink:0,alignSelf:'center'}}>{'>'}</div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
 
               <button style={{...btnGhost,width:'100%',marginTop:4,marginBottom:12}} onClick={()=>loadFeeds(activeFeeds,true)}>
