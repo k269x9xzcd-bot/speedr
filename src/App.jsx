@@ -980,16 +980,16 @@ export default function App() {
                     <div style={{height:'100%',width:progress+'%',background:'#7c6af7',transition:'width 0.12s linear'}}/>
                   </div>
                 )}
+              </div>
 
-                {/* Stats row */}
-                <div className={`ui-layer ls-hide${uiFading?' ui-faded':''}`} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'9px 16px',fontSize:12,color:'#3a3a3a',flexShrink:0,gap:6}}>
-                  <span>{totalWords.toLocaleString()}w</span>
-                  <span>{minsLeft}m</span>
-                  <span>{Math.round(progress)}%</span>
-                  {activeText&&<button onClick={e=>{e.stopPropagation();saveArticle(activeTitle,activeText,urlInput,'');}} style={{padding:'3px 10px',border:'1px solid #2a2a4a',borderRadius:10,background:'transparent',color:'#8b7fff',fontSize:11,cursor:'pointer'}}>Save</button>}
-                  {activeText&&<button onClick={e=>{e.stopPropagation();navigator.clipboard?.writeText(activeText);showToast('Copied!');}} style={{padding:'3px 10px',border:'1px solid #1a1a1a',borderRadius:10,background:'transparent',color:'#555',fontSize:11,cursor:'pointer'}}>Copy</button>}
-                    {activeArticleUrl&&<a href={activeArticleUrl} target='_blank' rel='noreferrer' onClick={e=>e.stopPropagation()} style={{padding:'3px 10px',border:'1px solid #1a1a1a',borderRadius:10,color:'#555',fontSize:11,cursor:'pointer',textDecoration:'none'}}>Link</a>}
-                </div>
+              {/* Stats row — standalone, between reader stage and speed slider */}
+              <div className={`ui-layer ls-hide${uiFading?' ui-faded':''}`} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'8px 4px',fontSize:12,color:'#3a3a3a',gap:6}}>
+                <span>{totalWords.toLocaleString()}w</span>
+                <span>{minsLeft}m</span>
+                <span>{Math.round(progress)}%</span>
+                {activeText&&<button onClick={()=>saveArticle(activeTitle,activeText,urlInput,'')} style={{padding:'3px 10px',border:'1px solid #2a2a4a',borderRadius:10,background:'transparent',color:'#8b7fff',fontSize:11,cursor:'pointer'}}>Save</button>}
+                {activeText&&<button onClick={()=>{navigator.clipboard?.writeText(activeText);showToast('Copied!');}} style={{padding:'3px 10px',border:'1px solid #1a1a1a',borderRadius:10,background:'transparent',color:'#555',fontSize:11,cursor:'pointer'}}>Copy</button>}
+                {activeArticleUrl&&<a href={activeArticleUrl} target='_blank' rel='noreferrer' style={{padding:'3px 10px',border:'1px solid #1a1a1a',borderRadius:10,color:'#555',fontSize:11,cursor:'pointer',textDecoration:'none'}}>Link</a>}
               </div>
 
               {/* Speed slider */}
