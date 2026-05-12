@@ -260,17 +260,51 @@ function chunkDelay(chunk, baseMs, variable) {
 }
 
 // -- ORP DISPLAY ---------------------------------------------------------------
+function fontMaxPx(sizeKey) {
+  const m = (FONT_SIZE_MAP[sizeKey] || '').match(/(\d+)px\)\s*$/);
+  return m ? parseInt(m[1], 10) : 38;
+}
+
+function splitOrp(word) {
+  const stem = word.replace(/[.,!?;:]+$/, '');
+  const punct = word.slice(stem.length);
+  if (!stem) return { pre:'', orp: word.slice(0, 1) || '', post: word.slice(1) };
+  const i = Math.min(Math.max(0, Math.floor(stem.length * 0.3)), stem.length - 1);
+  return { pre: stem.slice(0, i), orp: stem[i], post: stem.slice(i + 1) + punct };
+}
+
 function OrpWord({ word, on, color }) {
-  const s = word.replace(/[.,!?;:]+$/,'');
-  const p = word.slice(s.length);
-  const i = Math.max(0, Math.floor(s.length * 0.3));
   if (!on) return <span>{word}</span>;
-  return <span>{s.slice(0,i)}<span style={{color,fontWeight:600}}>{s[i]}</span>{s.slice(i+1)}{p}</span>;
+  const { pre, orp, post } = splitOrp(word);
+  return <span>{pre}<span style={{color,fontWeight:600}}>{orp}</span>{post}</span>;
 }
 
 function ChunkDisplay({ chunk, settings, allChunks, idx }) {
   const font = FONT_MAP[settings.fontStyle];
-  const size = FONT_SIZE_MAP[settings.fontSize];
+  const baseSize = FONT_SIZE_MAP[settings.fontSize];
+
+  // Single-word chunk: fixed ORP anchor at ~35% from the left of the reading area.
+  if (chunk.length === 1) {
+    const word = chunk[0];
+    const scaledSize = word.length > 10
+      ? `clamp(18px, ${(6 - (word.length - 10) * 0.3).toFixed(2)}vw, ${Math.round(fontMaxPx(settings.fontSize) * 0.7)}px)`
+      : baseSize;
+    if (!settings.orpOn) {
+      return (
+        <div style={{fontFamily:font,fontSize:scaledSize,lineHeight:1.3,letterSpacing:0.3,color:'#f0f0f0',width:'100%',textAlign:'center',whiteSpace:'nowrap',overflow:'hidden'}}>{word}</div>
+      );
+    }
+    const { pre, orp, post } = splitOrp(word);
+    return (
+      <div style={{display:'flex',flexDirection:'row',alignItems:'center',justifyContent:'center',width:'100%',position:'relative',fontFamily:font,fontSize:scaledSize,lineHeight:1.3,letterSpacing:0.3,whiteSpace:'nowrap',overflow:'hidden'}}>
+        <span style={{flex:'0 0 35%',textAlign:'right',paddingRight:2,color:'#f0f0f0',whiteSpace:'nowrap',overflow:'hidden'}}>{pre}</span>
+        <span style={{flex:'0 0 auto',textAlign:'center',color:settings.orpColor,fontWeight:600}}>{orp}</span>
+        <span style={{flex:'0 0 65%',textAlign:'left',paddingLeft:2,color:'#f0f0f0',whiteSpace:'nowrap',overflow:'hidden'}}>{post}</span>
+      </div>
+    );
+  }
+
+  // Multi-word chunk: centered, single line, optional peripheral context words.
   const before = [], after = [];
   if (settings.peripheralBefore > 0) {
     let wi = idx - 1, count = 0;
@@ -287,9 +321,9 @@ function ChunkDisplay({ chunk, settings, allChunks, idx }) {
     }
   }
   return (
-    <div style={{fontFamily:font,fontSize:size,textAlign:'center',lineHeight:1.3,letterSpacing:0.3,display:'flex',alignItems:'center',justifyContent:'center',gap:'0.35em',flexWrap:'nowrap'}}>
+    <div style={{fontFamily:font,fontSize:baseSize,textAlign:'center',lineHeight:1.3,letterSpacing:0.3,display:'flex',alignItems:'center',justifyContent:'center',gap:'0.35em',whiteSpace:'nowrap',overflow:'hidden',width:'100%'}}>
       {before.length > 0 && <span style={{color:'#2e2e2e',fontSize:'0.6em',flexShrink:0}}>{before.join(' ')}</span>}
-      <span style={{color:'#f0f0f0'}}>
+      <span style={{color:'#f0f0f0',whiteSpace:'nowrap'}}>
         {chunk.map((w,i) => <React.Fragment key={i}>{i>0&&' '}<OrpWord word={w} on={settings.orpOn} color={settings.orpColor}/></React.Fragment>)}
       </span>
       {after.length > 0 && <span style={{color:'#2e2e2e',fontSize:'0.6em',flexShrink:0}}>{after.join(' ')}</span>}
@@ -889,7 +923,7 @@ export default function App() {
                       <div style={{color:'#1a1a1a',fontSize:11}}>tap left/right to skip</div>
                     </div>
                   ) : (
-                    <div className="ls-words">
+                    <div className="ls-words" style={{width:'100%'}}>
                       <ChunkDisplay chunk={currentChunk} settings={settings} allChunks={chunks} idx={Math.min(idx,chunks.length-1)}/>
                     </div>
                   )}
