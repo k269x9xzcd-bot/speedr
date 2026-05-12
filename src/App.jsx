@@ -901,30 +901,33 @@ export default function App() {
                 className={landscape ? 'ls-reader' : ''}
                 style={{...card,flex:1,minHeight:landscape?0:180,cursor:'pointer',touchAction:'none',display:'flex',flexDirection:'column',marginBottom:0,position:'relative'}}
               >
-                {/* LEFT ZONE — rewind */}
-                <div
-                  onPointerDown={e => { e.stopPropagation(); if (!chunks.length) return; setIdx(i => Math.max(0, i - 1)); rewindRef.current = setInterval(() => setIdx(i => Math.max(0, i - 1)), 60000 / wpm); }}
-                  onPointerUp={e => { e.stopPropagation(); clearInterval(rewindRef.current); }}
-                  onPointerLeave={e => { e.stopPropagation(); clearInterval(rewindRef.current); }}
-                  onPointerCancel={e => { e.stopPropagation(); clearInterval(rewindRef.current); }}
-                  style={{position:'absolute', left:0, top:0, width:'20%', height:'100%', zIndex:10, touchAction:'none'}}
-                />
-                {/* MIDDLE ZONE — hold to read / tap to pause */}
-                <div
-                  onPointerDown={e => { if (!chunks.length) return; e.preventDefault(); holdRef.current = true; if (idx >= chunks.length) { setIdx(0); setDone(false); } setPlaying(true); }}
-                  onPointerUp={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); }}
-                  onPointerLeave={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); }}
-                  onPointerCancel={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); }}
-                  style={{position:'absolute', left:'20%', top:0, width:'50%', height:'100%', zIndex:10, touchAction:'none'}}
-                />
-                {/* RIGHT ZONE — fast forward */}
-                <div
-                  onPointerDown={e => { e.stopPropagation(); if (!chunks.length) return; setIdx(i => Math.min(chunks.length - 1, i + 1)); fastFwdRef.current = setInterval(() => setIdx(i => Math.min(chunks.length - 1, i + 1)), 60000 / wpm); }}
-                  onPointerUp={e => { e.stopPropagation(); clearInterval(fastFwdRef.current); }}
-                  onPointerLeave={e => { e.stopPropagation(); clearInterval(fastFwdRef.current); }}
-                  onPointerCancel={e => { e.stopPropagation(); clearInterval(fastFwdRef.current); }}
-                  style={{position:'absolute', right:0, top:0, width:'30%', height:'100%', zIndex:10, touchAction:'none'}}
-                />
+                {/* Seek / hold zones — only active while there's text and we're not on the finished screen */}
+                {chunks.length > 0 && !done && (<>
+                  {/* LEFT ZONE — rewind */}
+                  <div
+                    onPointerDown={e => { e.stopPropagation(); if (!chunks.length) return; setIdx(i => Math.max(0, i - 1)); rewindRef.current = setInterval(() => setIdx(i => Math.max(0, i - 1)), 60000 / wpm); }}
+                    onPointerUp={e => { e.stopPropagation(); clearInterval(rewindRef.current); }}
+                    onPointerLeave={e => { e.stopPropagation(); clearInterval(rewindRef.current); }}
+                    onPointerCancel={e => { e.stopPropagation(); clearInterval(rewindRef.current); }}
+                    style={{position:'absolute', left:0, top:0, width:'20%', height:'100%', zIndex:10, touchAction:'none'}}
+                  />
+                  {/* MIDDLE ZONE — hold to read / tap to pause */}
+                  <div
+                    onPointerDown={e => { if (!chunks.length) return; e.preventDefault(); holdRef.current = true; if (idx >= chunks.length) { setIdx(0); setDone(false); } setPlaying(true); }}
+                    onPointerUp={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); }}
+                    onPointerLeave={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); }}
+                    onPointerCancel={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); }}
+                    style={{position:'absolute', left:'20%', top:0, width:'50%', height:'100%', zIndex:10, touchAction:'none'}}
+                  />
+                  {/* RIGHT ZONE — fast forward */}
+                  <div
+                    onPointerDown={e => { e.stopPropagation(); if (!chunks.length) return; setIdx(i => Math.min(chunks.length - 1, i + 1)); fastFwdRef.current = setInterval(() => setIdx(i => Math.min(chunks.length - 1, i + 1)), 60000 / wpm); }}
+                    onPointerUp={e => { e.stopPropagation(); clearInterval(fastFwdRef.current); }}
+                    onPointerLeave={e => { e.stopPropagation(); clearInterval(fastFwdRef.current); }}
+                    onPointerCancel={e => { e.stopPropagation(); clearInterval(fastFwdRef.current); }}
+                    style={{position:'absolute', right:0, top:0, width:'30%', height:'100%', zIndex:10, touchAction:'none'}}
+                  />
+                </>)}
 
                 <div ref={wordRef} style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 24px',position:'relative'}}>
                   {fetching ? (
