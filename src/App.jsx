@@ -440,11 +440,11 @@ function parseRSSXML(xml, feed) {
   const items = Array.from(new DOMParser().parseFromString(xml,'text/xml').querySelectorAll(isAtom?'entry':'item')).slice(0,20);
   return items.map(item => {
     const get = sel => item.querySelector(sel)?.textContent?.trim() || '';
-    const title = get('title');
+    const title = decodeHtmlEntities(get('title'));
     const link = isAtom ? (item.querySelector('link[rel=alternate]')?.getAttribute('href') || item.querySelector('link')?.getAttribute('href') || '') : get('link');
-    const desc = (get('description') || get('summary')).replace(/<[^>]+>/g,'').trim();
+    const desc = decodeHtmlEntities((get('description') || get('summary')).replace(/<[^>]+>/g,'').trim());
     const full = (get('content') || '').replace(/<[^>]+>/g,'').trim();
-    return { title:decodeHtmlEntities(title), link, description:decodeHtmlEntities(desc.slice(0,200)), fullContent:decodeHtmlEntities(full.length>desc.length?full:''), pubDate:get('pubDate')||get('published')||get('updated')||'', source:feed.name, category:feed.category, feedId:feed.id };
+    return { title, link, description:desc.slice(0,200), fullContent:decodeHtmlEntities(full.length>desc.length?full:''), pubDate:get('pubDate')||get('published')||get('updated')||'', source:feed.name, category:feed.category, feedId:feed.id };
   }).filter(i=>i.title);
 }
 
