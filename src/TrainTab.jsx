@@ -141,6 +141,69 @@ async function loadTrainingRemote() {
   } catch { return []; }
 }
 
+// -- Stable client id (localStorage + long-lived cookie fallback) --------------
+function getCookie(name) {
+  const match = document.cookie.match(new RegExp('(^| )' + name + '=([^;]+)'));
+  return match ? match[2] : null;
+}
+
+function setCookie(name, value) {
+  const expires = new Date();
+  expires.setFullYear(expires.getFullYear() + 10);
+  document.cookie = name + '=' + value + '; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+}
+
+function getUserId() {
+  // NOTE: uses its own key, not speedr_anon_token — that one holds a rotating Supabase JWT.
+  let id = localStorage.getItem('speedr_uid') || getCookie('speedr_uid');
+  if (!id) {
+    id = 'anon_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+  }
+  localStorage.setItem('speedr_uid', id);
+  setCookie('speedr_uid', id);
+  return id;
+}
+
+// -- Train profile sync (XP / streak / scores) ---------------------------------
+async function saveTrainProfile(state) {
+  try {
+    const userId = getUserId();
+    await fetch(SUPABASE_URL + '/rest/v1/speedr_train_profile', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': SUPABASE_ANON,
+        'Authorization': 'Bearer ' + SUPABASE_ANON,
+        'Prefer': 'resolution=merge-duplicates,return=minimal',
+      },
+      body: JSON.stringify({
+        user_id: userId,
+        xp_total: state.xp_total || 0,
+        streak_days: state.streak_days || 0,
+        last_session_date: state.last_session_date || null,
+        s_score: state.s_score || 0,
+        c_score: state.c_score || 0,
+        target_wpm: state.target_wpm || 0,
+        track: state.track || 'all',
+        updated_at: new Date().toISOString(),
+      }),
+    });
+  } catch {}
+}
+
+async function loadTrainProfile() {
+  try {
+    const userId = getUserId();
+    const r = await fetch(
+      SUPABASE_URL + '/rest/v1/speedr_train_profile?user_id=eq.' + encodeURIComponent(userId) + '&limit=1',
+      { headers: { 'apikey': SUPABASE_ANON, 'Authorization': 'Bearer ' + SUPABASE_ANON } }
+    );
+    if (!r.ok) return null;
+    const rows = await r.json();
+    return rows && rows[0] ? rows[0] : null;
+  } catch { return null; }
+}
+
 // -- XP + streaks --------------------------------------------------------------
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function dayDiff(from, to) {
@@ -342,6 +405,29 @@ export default function TrainTab({ readerWpm }) {
 
   useEffect(() => { if (phase === 'home') loadTrainingRemote().then(setRemoteSessions); }, [phase]);
 
+  // On a fresh device (no local progress) try to restore the profile from Supabase
+  useEffect(() => {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      loadTrainProfile().then(profile => {
+        if (profile) {
+          const restored = {
+            ...BASE_STATE,
+            xp_total: profile.xp_total || 0,
+            streak_days: profile.streak_days || 0,
+            last_session_date: profile.last_session_date || null,
+            s_score: profile.s_score || 0,
+            c_score: profile.c_score || 0,
+            target_wpm: profile.target_wpm || 0,
+            track: profile.track || 'all',
+          };
+          setState(restored);
+          saveState(restored);
+        }
+      });
+    }
+  }, []);
+
   const changeTrack = (t) => { setTrack(t); try { localStorage.setItem(TRACK_KEY, t); } catch {} };
 
   const patchInProgress = useCallback((patch) => {
@@ -441,6 +527,7 @@ export default function TrainTab({ readerWpm }) {
     };
     setState(next);
     saveState(next);
+    saveTrainProfile(next);
     saveTrainingRemote({
       passage_title: (passage && passage.title) || 'Untitled',
       passage_track: (passage && passage.track) || track,
