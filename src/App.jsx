@@ -478,10 +478,43 @@ async function fetchViaAllOrigins(url) {
   throw new Error('No paragraphs');
 }
 
+const PAYWALL_PHRASES = ['subscribe to continue', 'create a free account', "you've reached your limit", 'sign in to read', 'subscribe for full access'];
+function wordCount(s) { return s ? s.trim().split(/\s+/).filter(Boolean).length : 0; }
+function looksTruncated(text) {
+  if (!text) return true;
+  if (wordCount(text) < 200) return true;
+  const lower = text.toLowerCase();
+  return PAYWALL_PHRASES.some(p => lower.includes(p));
+}
+
+async function fetchViaArchivePh(url) {
+  const res = await fetch(ALLORIGINS + encodeURIComponent('https://archive.ph/newest/' + url), { signal: AbortSignal.timeout(15000) });
+  const data = await res.json().catch(() => ({}));
+  const html = data.contents || '';
+  if (!html || html.length < 800) throw new Error('not archived');
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  doc.querySelectorAll('script,style,noscript,nav,footer,header,aside,form,iframe,.nav,.footer,.sidebar,.ad,.social').forEach(n => n.remove());
+  for (const sel of ['article','[itemprop=articleBody]','.article-body','.post-content','.entry-content','.story-body','.body.markup','main','[role=main]']) {
+    const el = doc.querySelector(sel);
+    if (el) { const paras = Array.from(el.querySelectorAll('p')).map(p => p.textContent.trim()).filter(t => t.length > 40); if (paras.length > 2) return decodeHtmlEntities(paras.join('\n\n')); }
+  }
+  const allParas = Array.from(doc.querySelectorAll('p')).map(p => p.textContent.trim()).filter(t => t.length > 50);
+  if (allParas.length > 2) return decodeHtmlEntities(allParas.join('\n\n'));
+  throw new Error('no article text');
+}
+
 async function fetchText(url) {
-  try { const t = await fetchViaSupabaseArticle(url); if (t.length > 300) return t; } catch(e) { console.log('Supabase:', e.message); }
-  try { const t = await fetchViaJina(url); if (t.length > 300) return t; } catch(e) { console.log('Jina:', e.message); }
-  try { const t = await fetchViaAllOrigins(url); if (t.length > 200) return t; } catch(e) { console.log('AllOrigins:', e.message); }
+  let best = '';
+  const good = t => t && wordCount(t) >= 200 && !PAYWALL_PHRASES.some(p => t.toLowerCase().includes(p));
+  // Jina (JS-rendered) → AllOrigins (fast) → archive.ph → Supabase edge fn (Googlebot UA)
+  for (const [label, fn] of [['Jina', fetchViaJina], ['AllOrigins', fetchViaAllOrigins], ['archive.ph', fetchViaArchivePh], ['Supabase', fetchViaSupabaseArticle]]) {
+    try {
+      const t = await fn(url);
+      if (t && wordCount(t) > wordCount(best)) best = t;
+      if (good(best)) return best;
+    } catch (e) { console.log(label + ':', e && e.message); }
+  }
+  if (best && wordCount(best) > 30) return best; // best-effort — caller surfaces the "may be truncated" banner
   throw new Error('Could not extract article. Use the bookmarklet for paywalled sites.');
 }
 
@@ -807,7 +840,7 @@ export default function App() {
       if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
       const text = await fetchText(u);
       if (!text || text.length < 100) throw new Error('Could not extract article text.');
-      loadText(decodeHtmlEntities(text), u); setTab('reader');
+      loadText(decodeHtmlEntities(text), u); setActiveArticleUrl(u); setTab('reader');
     } catch(e) { setFetchErr(e.message); }
     finally { setFetching(false); }
   };
@@ -914,6 +947,7 @@ export default function App() {
   const currentChunk = chunks[Math.min(idx,chunks.length-1)] || [];
   const visibleItems = category==='All' ? feedItems : feedItems.filter(i=>i.category===category);
   const uiFading = isFocused && !landscape;
+  const articleTruncated = tab==='reader' && !!activeText && !!activeArticleUrl && (totalWords < 200 || PAYWALL_PHRASES.some(p => activeText.toLowerCase().includes(p)));
 
   // Keep the status-bar / theme color pure black, and go full black behind the app while focused
   useEffect(() => {
@@ -1118,6 +1152,14 @@ export default function App() {
                   <span style={{fontSize:11,color:'#333',minWidth:28,textAlign:'right'}}>700</span>
                 </div>
               </div>
+
+              {/* Truncated / paywalled article fallback */}
+              {articleTruncated && (
+                <div className={`ui-layer ls-hide${uiFading?' ui-faded':''}`} style={{...card,padding:'12px 14px',marginTop:10,marginBottom:0,display:'flex',flexDirection:'column',gap:10}}>
+                  <div style={{fontSize:12,color:'#888',lineHeight:1.5}}>Article may be truncated — try the bookmarklet for full text.</div>
+                  <a href={activeArticleUrl} target="_blank" rel="noreferrer" style={{...btnGhost,textAlign:'center',textDecoration:'none',color:'#8b7fff',borderColor:'#2a2a4a'}}>Open in Safari →</a>
+                </div>
+              )}
 
             </div>
           )}
