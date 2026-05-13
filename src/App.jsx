@@ -536,55 +536,100 @@ function extractJsonArrayAfter(str, key) {
 function diggRscChunks(html) {
   return [...html.matchAll(/self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)].map(x => x[1]);
 }
-async function fetchDiggPayload() {
-  const res = await fetch(ALLORIGINS + encodeURIComponent('https://di.gg/ai') + '&t=' + Math.floor(Date.now() / 300000), { signal: AbortSignal.timeout(15000) });
+async function fetchDiggHtml(url) {
+  const res = await fetch(ALLORIGINS + encodeURIComponent(url) + '&t=' + Math.floor(Date.now() / 300000), { signal: AbortSignal.timeout(15000) });
   const data = await res.json().catch(() => ({}));
-  const html = data.contents || '';
-  if (!html) return '';
-  const chunks = diggRscChunks(html);
-  return chunks.length ? jsUnescape(chunks.join('')) : '';
+  return data.contents || '';
 }
-async function fetchDiggStories() {
-  const payload = await fetchDiggPayload();
-  if (!payload) return [];
-  const arrText = extractJsonArrayAfter(payload, 'items');
-  if (!arrText) return [];
-  let arr; try { arr = JSON.parse(arrText); } catch { return []; }
-  if (!Array.isArray(arr)) return [];
-  return arr.slice(0, 30).map((c, i) => ({
-    title: ((c && (c.title || c.sourceTitle)) || '').toString().trim(),
-    description: ((c && (c.tldr || c.summary || c.reason)) || '').toString().trim(),
-    link: 'https://di.gg/ai/' + ((c && (c.clusterUrlId || c.clusterId)) || ''),
-    pubDate: (c && c.createdAt) || '',
-    source: 'Digg AI',
-    diggCount: (c && (c.postCount || c.diggs)) || 0,
-    rank: (c && c.rank) || i + 1,
-    isDigg: true,
-  })).filter(it => it.title);
+async function fetchDiggStories(which) {
+  const url = which === 'ai' ? 'https://di.gg/ai' : 'https://di.gg';
+  const html = await fetchDiggHtml(url);
+  if (!html) return [];
+  // 1. RSC payload (may be stripped by the proxy)
+  const chunks = diggRscChunks(html);
+  if (chunks.length) {
+    const arrText = extractJsonArrayAfter(jsUnescape(chunks.join('')), 'items');
+    if (arrText) {
+      try {
+        const arr = JSON.parse(arrText);
+        if (Array.isArray(arr) && arr.length > 0) {
+          return arr.slice(0, 30).map((c, i) => ({
+            title: ((c && (c.title || c.sourceTitle)) || '').toString().trim(),
+            description: ((c && (c.tldr || c.summary || c.reason)) || '').toString().trim(),
+            link: 'https://di.gg/ai/' + ((c && (c.clusterUrlId || c.clusterId)) || ''),
+            pubDate: (c && c.createdAt) || '',
+            source: 'Digg AI',
+            diggCount: (c && (c.postCount || c.diggs)) || 0,
+            rank: (c && c.rank) || i + 1,
+            isDigg: true,
+          })).filter(it => it.title);
+        }
+      } catch {}
+    }
+  }
+  // 2. Fallback: parse the rendered HTML — stories render as anchors to /ai/{id} with title + tldr inline
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const results = [];
+  for (const a of Array.from(doc.querySelectorAll('a[href*="/ai/"]'))) {
+    const href = a.getAttribute('href') || '';
+    const m = href.match(/\/ai\/([a-z0-9_-]+)/i);
+    if (!m) continue;
+    const id = m[1];
+    if (results.find(r => r.link.includes(id))) continue;
+    const text = a.textContent.trim();
+    if (text.length < 20) continue;
+    const sentenceEnd = text.search(/\.\s+[A-Z]/);
+    const title = sentenceEnd > 20 ? text.slice(0, sentenceEnd + 1).trim() : text.slice(0, 100).trim();
+    const description = sentenceEnd > 20 ? text.slice(sentenceEnd + 2).trim().slice(0, 300) : '';
+    results.push({ title, description, link: 'https://di.gg/ai/' + id, pubDate: '', source: 'Digg AI', diggCount: 0, rank: results.length + 1, isDigg: true });
+    if (results.length >= 30) break;
+  }
+  return results;
 }
 async function fetchGitHubStories() {
-  const payload = await fetchDiggPayload();
-  if (!payload) return [];
-  const arrText = extractJsonArrayAfter(payload, 'githubMostStarred7d');
-  if (!arrText) return [];
-  let arr; try { arr = JSON.parse(arrText); } catch { return []; }
-  if (!Array.isArray(arr)) return [];
-  return arr.slice(0, 30).map((r, i) => {
-    const repo = ((r && r.full_name) || '').toString().trim();
-    const stars = (r && r.stargazers_count) || 0;
-    const followers = (r && Array.isArray(r.starrers) ? r.starrers : []).map(s => (s && (s.display_name || s.username)) || '').filter(Boolean).slice(0, 3);
-    return {
-      title: ((r && r.description) || repo).toString().trim(),
-      description: repo + (r && r.language ? ' · ' + r.language : '') + (followers.length ? ' · ★ ' + followers.join(', ') : ''),
-      repo,
-      stars,
-      link: repo ? 'https://github.com/' + repo : '',
-      pubDate: (r && r.most_recent_star_at) || '',
-      source: '★ ' + (stars ? stars.toLocaleString() : '0'),
-      rank: i + 1,
-      isGitHub: true,
-    };
-  }).filter(it => it.repo);
+  const html = await fetchDiggHtml('https://di.gg/ai');
+  if (!html) return [];
+  // 1. RSC payload — githubMostStarred7d (gives star counts + notable starrers)
+  const chunks = diggRscChunks(html);
+  if (chunks.length) {
+    const arrText = extractJsonArrayAfter(jsUnescape(chunks.join('')), 'githubMostStarred7d');
+    if (arrText) {
+      try {
+        const arr = JSON.parse(arrText);
+        if (Array.isArray(arr) && arr.length > 0) {
+          return arr.slice(0, 30).map((r, i) => {
+            const repo = ((r && r.full_name) || '').toString().trim();
+            const stars = (r && r.stargazers_count) || 0;
+            const followers = (r && Array.isArray(r.starrers) ? r.starrers : []).map(s => (s && (s.display_name || s.username)) || '').filter(Boolean).slice(0, 3);
+            return {
+              title: ((r && r.description) || repo).toString().trim(),
+              description: repo + (r && r.language ? ' · ' + r.language : '') + (followers.length ? ' · ★ ' + followers.join(', ') : ''),
+              repo, stars,
+              link: repo ? 'https://github.com/' + repo : '',
+              pubDate: (r && r.most_recent_star_at) || '',
+              source: '★ ' + (stars ? stars.toLocaleString() : '0'),
+              rank: i + 1, isGitHub: true,
+            };
+          }).filter(it => it.repo);
+        }
+      } catch {}
+    }
+  }
+  // 2. Fallback: scrape github.com links out of the rendered HTML
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const results = [];
+  for (const a of Array.from(doc.querySelectorAll('a[href*="github.com/"]'))) {
+    const href = a.getAttribute('href') || '';
+    const m = href.match(/github\.com\/([^/?#]+\/[^/?#]+)/);
+    if (!m) continue;
+    const repo = m[1];
+    if (results.find(r => r.repo === repo)) continue;
+    const text = a.textContent.trim();
+    if (text.length < 10) continue;
+    results.push({ title: repo, description: text.slice(0, 200), repo, link: 'https://github.com/' + repo, pubDate: '', source: 'GitHub · Digg AI', rank: results.length + 1, isGitHub: true });
+    if (results.length >= 20) break;
+  }
+  return results;
 }
 async function resolveDiggSource(diggUrl) {
   try {
@@ -961,7 +1006,7 @@ export default function App() {
   useEffect(() => { if (tab==='news') loadFeeds(activeFeeds); if (tab==='library') loadLibrary(); }, [tab]);
 
   const refreshNews = () => {
-    if (category === 'Digg AI') { setDiggLoading(true); fetchDiggStories().then(setDiggItems).catch(() => setDiggItems([])).finally(() => setDiggLoading(false)); }
+    if (category === 'Digg AI') { setDiggLoading(true); fetchDiggStories('ai').then(setDiggItems).catch(() => setDiggItems([])).finally(() => setDiggLoading(false)); }
     else if (category === 'GitHub') { setGithubLoading(true); fetchGitHubStories().then(setGithubItems).catch(() => setGithubItems([])).finally(() => setGithubLoading(false)); }
     else loadFeeds(activeFeeds, true);
   };
@@ -1176,9 +1221,9 @@ export default function App() {
             {tab==='reader' && activeTitle && prevNewsScroll > 0 && (
               <button onClick={goBackToNews} style={{background:'none',border:'none',color:'#8b7fff',cursor:'pointer',fontSize:20,padding:'0 4px 0 0',lineHeight:1}}>{'<'}</button>
             )}
-            <div style={{display:'flex', alignItems:'baseline', gap:1}}>
+            <div style={{display:'flex', alignItems:'baseline', gap:0}}>
               <span style={{color:'#7c6af7', fontSize:26, lineHeight:1}}>⚡</span>
-              <span style={{color:'#f0f0f0', fontSize:20, fontWeight:500, fontFamily:"'JetBrains Mono', monospace", letterSpacing:'-0.5px'}}>peedr</span>
+              <span style={{color:'#f0f0f0', fontSize:20, fontWeight:500, fontFamily:"'JetBrains Mono', monospace", letterSpacing:'-0.5px', marginLeft:-2}}>peedr</span>
             </div>
             {activeTitle && tab==='reader' && (
               <span style={{fontSize:12,color:'#444',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{activeTitle}</span>
