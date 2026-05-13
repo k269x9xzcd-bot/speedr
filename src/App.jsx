@@ -849,6 +849,7 @@ export default function App() {
   const wordRef = useRef(null);
   const rewindRef = useRef(null);
   const fastFwdRef = useRef(null);
+  const holdTimerRef = useRef(null);
   const baseDelay = 60000 / wpm;
 
   const allFeeds = useMemo(() => [...ALL_FEEDS, ...extraFeeds], [extraFeeds]);
@@ -886,7 +887,7 @@ export default function App() {
   }, [playing, idx, chunks, baseDelay, variablePacing]);
 
   // Stop any seek/playback timers if the app unmounts mid-press
-  useEffect(() => () => { clearInterval(rewindRef.current); clearInterval(fastFwdRef.current); clearTimeout(timerRef.current); }, []);
+  useEffect(() => () => { clearInterval(rewindRef.current); clearInterval(fastFwdRef.current); clearTimeout(timerRef.current); clearTimeout(holdTimerRef.current); }, []);
 
   // postMessage from bookmarklet
   useEffect(() => {
@@ -1231,10 +1232,10 @@ export default function App() {
                   />
                   {/* MIDDLE ZONE — hold to read / tap to pause */}
                   <div
-                    onPointerDown={e => { if (!chunks.length) return; e.preventDefault(); holdRef.current = true; if (idx >= chunks.length) { setIdx(0); setDone(false); } setPlaying(true); setIsFocused(true); }}
-                    onPointerUp={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); setIsFocused(false); }}
-                    onPointerLeave={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); setIsFocused(false); }}
-                    onPointerCancel={e => { if (!holdRef.current) return; e.preventDefault(); holdRef.current = false; setPlaying(false); setIsFocused(false); }}
+                    onPointerDown={e => { if (!chunks.length) return; e.preventDefault(); holdRef.current = true; if (idx >= chunks.length) { setIdx(0); setDone(false); } setPlaying(true); clearTimeout(holdTimerRef.current); holdTimerRef.current = setTimeout(() => { if (holdRef.current) setIsFocused(true); }, 120); }}
+                    onPointerUp={e => { if (!holdRef.current) return; e.preventDefault(); clearTimeout(holdTimerRef.current); holdRef.current = false; setPlaying(false); setIsFocused(false); }}
+                    onPointerLeave={e => { if (!holdRef.current) return; e.preventDefault(); clearTimeout(holdTimerRef.current); holdRef.current = false; setPlaying(false); setIsFocused(false); }}
+                    onPointerCancel={e => { clearTimeout(holdTimerRef.current); holdRef.current = false; setPlaying(false); setIsFocused(false); }}
                     style={{position:'absolute', left:'20%', top:0, width:'50%', height:'100%', zIndex:10, touchAction:'none'}}
                   />
                   {/* RIGHT ZONE — fast forward */}
