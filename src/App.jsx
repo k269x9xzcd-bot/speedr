@@ -537,9 +537,30 @@ function diggRscChunks(html) {
   return [...html.matchAll(/self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)].map(x => x[1]);
 }
 async function fetchDiggHtml(url) {
-  const res = await fetch(ALLORIGINS + encodeURIComponent(url) + '&t=' + Math.floor(Date.now() / 300000), { signal: AbortSignal.timeout(15000) });
-  const data = await res.json().catch(() => ({}));
-  return data.contents || '';
+  // 1. Supabase edge fn — server-side fetch, returns the *raw* HTML (RSC chunks intact)
+  try {
+    const p = new URLSearchParams({ mode: 'raw', url, t: String(Date.now()) });
+    const res = await fetch(SUPABASE_RSS + '?' + p, { signal: AbortSignal.timeout(15000) });
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      const html = data.html || data.text || '';
+      if (html && html.length >= 500) return html;
+    }
+  } catch {}
+  // 2. AllOrigins
+  try {
+    const res = await fetch(ALLORIGINS + encodeURIComponent(url) + '&t=' + Math.floor(Date.now() / 300000), { signal: AbortSignal.timeout(15000) });
+    const data = await res.json().catch(() => ({}));
+    const html = data.contents || '';
+    if (html && html.length >= 500) return html;
+  } catch {}
+  // 3. corsproxy.io
+  try {
+    const res = await fetch('https://corsproxy.io/?' + encodeURIComponent(url), { signal: AbortSignal.timeout(15000) });
+    const html = await res.text();
+    if (html && html.length >= 500) return html;
+  } catch {}
+  return '';
 }
 async function fetchDiggStories(which) {
   const url = which === 'ai' ? 'https://di.gg/ai' : 'https://di.gg';
