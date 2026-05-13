@@ -852,6 +852,21 @@ export default function App() {
   const holdTimerRef = useRef(null);
   const baseDelay = 60000 / wpm;
 
+  // iOS Safari: nudge the address bar away on load (no-op in standalone PWA)
+  useEffect(() => {
+    document.body.style.position = 'static';
+    document.body.style.overflowY = 'auto';
+    document.documentElement.style.overflowY = 'auto';
+    window.scrollTo(0, 1);
+    const t = setTimeout(() => {
+      document.body.style.position = '';
+      document.body.style.overflowY = 'hidden';
+      document.documentElement.style.overflowY = 'hidden';
+      window.scrollTo(0, 0);
+    }, 150);
+    return () => clearTimeout(t);
+  }, []);
+
   const allFeeds = useMemo(() => [...ALL_FEEDS, ...extraFeeds], [extraFeeds]);
   const activeFeeds = useMemo(() => allFeeds.filter(f => enabledFeeds.includes(f.id)), [allFeeds, enabledFeeds]);
 
