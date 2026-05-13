@@ -10,9 +10,34 @@ const SUPABASE_URL  = 'https://reojrvyczjrdaobgnrod.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlb2pydnljempyZGFvYmducm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzAyODQsImV4cCI6MjA5NDAwNjI4NH0.RziEy75n6MS6SNl_nUqLOVRSG19TNEta9AvzrT0BB14';
 
 const SEEN_KEY = 'speedr_seen_passages';
-function getSeen() { try { const a = JSON.parse(localStorage.getItem(SEEN_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; } }
-function markSeen(id) { if (!id) return; try { const a = getSeen().filter(x => x !== id); a.unshift(id); localStorage.setItem(SEEN_KEY, JSON.stringify(a.slice(0, 50))); } catch {} }
-function passageKey(p) { return p ? (p.title || p.id) : null; }
+const SEEN_WIKI_MAX = 50;
+
+function getSeenPassages() {
+  try { const a = JSON.parse(localStorage.getItem(SEEN_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
+}
+
+function addSeenPassage(id) {
+  if (!id) return;
+  try {
+    const seen = getSeenPassages();
+    if (seen.includes(id)) return;
+    seen.push(id);
+    // Keep the last 50 Wikipedia entries but only the last 2 BAKED entries
+    const wiki = seen.filter(s => !s.startsWith('baked:'));
+    const baked = seen.filter(s => s.startsWith('baked:'));
+    localStorage.setItem(SEEN_KEY, JSON.stringify([
+      ...wiki.slice(-SEEN_WIKI_MAX),
+      ...baked.slice(-2),
+    ]));
+  } catch {}
+}
+
+function randomFallback() {
+  const bakedSeen = getSeenPassages().filter(s => s.startsWith('baked:'));
+  const unseen = FALLBACK_PASSAGES.filter(p => !bakedSeen.includes('baked:' + p.id));
+  const pool = unseen.length ? unseen : FALLBACK_PASSAGES;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 
 const TRACKS = ['All', 'Science', 'History', 'Philosophy', 'Business'];
 const TRACK_TOPICS = {
@@ -68,23 +93,24 @@ function trimToSentences(text, maxWords = 220) {
   return slice.trim();
 }
 
-async function fetchWikipediaPassage(track, seen = [], maxTries = 10) {
-  const seenSet = new Set(seen);
+async function fetchWikipediaPassage(track, maxTries = 10) {
+  const seenSet = new Set(getSeenPassages());
   const pool = [...topicsForTrack(track)].sort(() => Math.random() - 0.5);
   for (const topic of pool.slice(0, maxTries)) {
-    if (seenSet.has(topic.replace(/_/g, ' '))) continue;
+    if (seenSet.has('wiki:' + topic.replace(/_/g, ' '))) continue;
     try {
       const r = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(topic), { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(4000) });
       if (!r.ok) continue;
       const data = await r.json();
       const title = data.title || topic.replace(/_/g, ' ');
-      if (seenSet.has(title)) continue;
+      if (seenSet.has('wiki:' + title)) continue;
       let text = ((data && data.extract) || '').trim();
       if (!text) continue;
       if (text.split(/\s+/).filter(Boolean).length < 100) continue;
       text = trimToSentences(text, 220);
       const words = text.split(/\s+/).filter(Boolean).length;
       if (words < 100) continue;
+      addSeenPassage('wiki:' + title);
       return { id: 'wiki:' + topic, title, text, words, track: track || 'All' };
     } catch { /* try next topic */ }
   }
@@ -446,7 +472,7 @@ export default function TrainTab({ readerWpm }) {
   const [track, setTrack] = useState(() => { try { return localStorage.getItem(TRACK_KEY) || 'All'; } catch { return 'All'; } });
   const [remoteSessions, setRemoteSessions] = useState([]);
   const [reading, setReading] = useState(false);
-  const [offline, setOffline] = useState(false);
+  const [loadingMsg, setLoadingMsg] = useState('Fetching passage...');
 
   const hasBaseline = !!(state.sessions && state.sessions.length > 0);
   const targetWpm = hasBaseline ? (state.target_wpm || BASELINE_WPM) : BASELINE_WPM;
@@ -494,37 +520,40 @@ export default function TrainTab({ readerWpm }) {
     });
   }, []);
 
-  const randomFallback = (seen = []) => {
-    const seenSet = new Set(seen);
-    const fresh = FALLBACK_PASSAGES.filter(p => !seenSet.has(passageKey(p)));
-    const pool = fresh.length ? fresh : FALLBACK_PASSAGES;
-    return pool[Math.floor(Math.random() * pool.length)];
-  };
-
   const start = async () => {
     setPhase('loading');
-    setOffline(false);
+    setLoadingMsg('Fetching passage...');
     setActualWpm(0);
     setComp(0);
     setXpEarned(0);
     setQuestions([]);
     setAnswers([]);
     setSessionWpm(targetWpm);
-    const seen = getSeen();
-    let p = await Promise.race([
-      fetchWikipediaPassage(track, seen).catch(() => null),
-      new Promise(res => setTimeout(() => res(null), 5000)),
-    ]);
+
+    // Try Wikipedia with a 5s timeout — failure means we're offline / blocked
+    let p = null, offline = false;
+    try {
+      p = await Promise.race([
+        fetchWikipediaPassage(track),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      ]);
+    } catch { offline = true; }
+
     let final = null;
-    if (p) final = await generateQuestions(p);
+    if (p) { try { final = await generateQuestions(p); } catch {} }
+
     if (!final || final.length < 3) {
-      // No live article/questions — fall back to a built-in passage (avoid recently-seen ones).
-      if (!p) setOffline(true);
-      p = randomFallback(seen);
+      const bakedSeen = getSeenPassages().filter(s => s.startsWith('baked:'));
+      const unseenBaked = FALLBACK_PASSAGES.filter(pb => !bakedSeen.includes('baked:' + pb.id));
+      if (offline && unseenBaked.length === 0) { setPhase('nopassage'); return; }
+      p = randomFallback();
       final = BAKED[p.id];
+      if (offline) setLoadingMsg('offline — using cached passage');
     }
+
     const blank = new Array(final.length).fill(-1);
-    markSeen(passageKey(p));
+    if (p && p.id && p.id.startsWith('wiki:')) addSeenPassage('wiki:' + p.title);
+    else if (p) addSeenPassage('baked:' + p.id);
     setPassage(p);
     setQuestions(final);
     setAnswers(blank);
@@ -532,7 +561,13 @@ export default function TrainTab({ readerWpm }) {
     patchInProgress({ phase:'reading', passage:p, sessionWpm:targetWpm, actualWpm:0, questions:final, answers:blank });
   };
 
-  const skipArticle = () => { markSeen(passageKey(passage)); start(); };
+  const skipArticle = () => {
+    if (passage) {
+      if (passage.id && passage.id.startsWith('wiki:')) addSeenPassage('wiki:' + passage.title);
+      else addSeenPassage('baked:' + passage.id);
+    }
+    start();
+  };
 
   const resumeSession = () => {
     const ip = state.inProgress;
@@ -697,8 +732,21 @@ export default function TrainTab({ readerWpm }) {
         <>
           <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Preparing</div>
           <div style={{...card, padding:'40px 16px', display:'flex', flexDirection:'column', alignItems:'center', gap:14}}>
-            <div style={{fontFamily:mono, fontSize:13, color:'#8b7fff', letterSpacing:1, animation:'pulse 1.2s ease-in-out infinite'}}>{offline ? 'LOADING…' : 'FETCHING PASSAGE…'}</div>
-            <div style={{fontSize:12, color:'#3a3a3a'}}>{offline ? 'offline — using cached passage' : (track === 'All' ? 'Pulling a fresh article and writing questions' : `Pulling a ${track.toLowerCase()} article and writing questions`)}</div>
+            <div style={{fontFamily:mono, fontSize:13, color:'#8b7fff', letterSpacing:1, animation:'pulse 1.2s ease-in-out infinite'}}>{loadingMsg.toUpperCase()}</div>
+            <div style={{fontSize:12, color:'#3a3a3a'}}>{track === 'All' ? 'Pulling a fresh article and writing questions' : `Pulling a ${track.toLowerCase()} article and writing questions`}</div>
+          </div>
+        </>
+      )}
+
+      {phase === 'nopassage' && (
+        <>
+          <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Offline</div>
+          <div style={{...card, padding:'32px 16px', display:'flex', flexDirection:'column', alignItems:'center', gap:16, textAlign:'center'}}>
+            <div style={{fontSize:32}}>📡</div>
+            <div style={{fontSize:15, color:'#e0e0e0', fontWeight:400}}>No signal</div>
+            <div style={{fontSize:13, color:'#555', lineHeight:1.6}}>All cached passages have been used. Connect to the internet to load new articles.</div>
+            <button onClick={start} style={{...btnPrimary, width:'100%'}}>Retry</button>
+            <button onClick={reset} style={{...btnGhost, width:'100%'}}>Back</button>
           </div>
         </>
       )}
