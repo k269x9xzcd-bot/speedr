@@ -87,7 +87,7 @@ const ALL_FEEDS = [
   { id:'economist',     name:'The Economist',      url:'https://www.economist.com/feeds/print-sections/all-sections.xml', category:'Premium' },
 ];
 
-const CATEGORIES = ['All','AI','Digg','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack','Premium','Custom'];
+const CATEGORIES = ['All','Digg AI','GitHub','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack','Premium','Custom'];
 const SUPABASE_RSS  = 'https://reojrvyczjrdaobgnrod.supabase.co/functions/v1/rss';
 const SUPABASE_URL  = 'https://reojrvyczjrdaobgnrod.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlb2pydnljempyZGFvYmducm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzAyODQsImV4cCI6MjA5NDAwNjI4NH0.RziEy75n6MS6SNl_nUqLOVRSG19TNEta9AvzrT0BB14';
@@ -533,31 +533,82 @@ function extractJsonArrayAfter(str, key) {
   }
   return null;
 }
-async function fetchDiggStories(which) {
-  const url = which === 'ai' ? 'https://di.gg/ai' : 'https://di.gg';
-  const res = await fetch(ALLORIGINS + encodeURIComponent(url) + '&t=' + Math.floor(Date.now() / 300000), { signal: AbortSignal.timeout(15000) });
+function diggRscChunks(html) {
+  return [...html.matchAll(/self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)].map(x => x[1]);
+}
+async function fetchDiggPayload() {
+  const res = await fetch(ALLORIGINS + encodeURIComponent('https://di.gg/ai') + '&t=' + Math.floor(Date.now() / 300000), { signal: AbortSignal.timeout(15000) });
   const data = await res.json().catch(() => ({}));
   const html = data.contents || '';
-  if (!html) return [];
-  const chunks = [...html.matchAll(/self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)/g)].map(x => x[1]);
-  if (!chunks.length) return [];
-  const payload = jsUnescape(chunks.join(''));
+  if (!html) return '';
+  const chunks = diggRscChunks(html);
+  return chunks.length ? jsUnescape(chunks.join('')) : '';
+}
+async function fetchDiggStories() {
+  const payload = await fetchDiggPayload();
+  if (!payload) return [];
   const arrText = extractJsonArrayAfter(payload, 'items');
   if (!arrText) return [];
-  let arr;
-  try { arr = JSON.parse(arrText); } catch { return []; }
+  let arr; try { arr = JSON.parse(arrText); } catch { return []; }
   if (!Array.isArray(arr)) return [];
   return arr.slice(0, 30).map((c, i) => ({
     title: ((c && (c.title || c.sourceTitle)) || '').toString().trim(),
     description: ((c && (c.tldr || c.summary || c.reason)) || '').toString().trim(),
-    link: 'https://di.gg/' + (which === 'ai' ? 'ai/' : '') + ((c && (c.clusterUrlId || c.clusterId)) || ''),
+    link: 'https://di.gg/ai/' + ((c && (c.clusterUrlId || c.clusterId)) || ''),
     pubDate: (c && c.createdAt) || '',
-    source: which === 'ai' ? 'Digg · AI' : 'Digg',
-    category: which === 'ai' ? 'AI' : 'Digg',
+    source: 'Digg AI',
     diggCount: (c && (c.postCount || c.diggs)) || 0,
     rank: (c && c.rank) || i + 1,
     isDigg: true,
   })).filter(it => it.title);
+}
+async function fetchGitHubStories() {
+  const payload = await fetchDiggPayload();
+  if (!payload) return [];
+  const arrText = extractJsonArrayAfter(payload, 'githubMostStarred7d');
+  if (!arrText) return [];
+  let arr; try { arr = JSON.parse(arrText); } catch { return []; }
+  if (!Array.isArray(arr)) return [];
+  return arr.slice(0, 30).map((r, i) => {
+    const repo = ((r && r.full_name) || '').toString().trim();
+    const stars = (r && r.stargazers_count) || 0;
+    const followers = (r && Array.isArray(r.starrers) ? r.starrers : []).map(s => (s && (s.display_name || s.username)) || '').filter(Boolean).slice(0, 3);
+    return {
+      title: ((r && r.description) || repo).toString().trim(),
+      description: repo + (r && r.language ? ' · ' + r.language : '') + (followers.length ? ' · ★ ' + followers.join(', ') : ''),
+      repo,
+      stars,
+      link: repo ? 'https://github.com/' + repo : '',
+      pubDate: (r && r.most_recent_star_at) || '',
+      source: '★ ' + (stars ? stars.toLocaleString() : '0'),
+      rank: i + 1,
+      isGitHub: true,
+    };
+  }).filter(it => it.repo);
+}
+async function resolveDiggSource(diggUrl) {
+  try {
+    if (!diggUrl || !diggUrl.includes('di.gg')) return null;
+    const res = await fetch(ALLORIGINS + encodeURIComponent(diggUrl), { signal: AbortSignal.timeout(15000) });
+    const data = await res.json().catch(() => ({}));
+    const html = data.contents || '';
+    if (!html) return null;
+    const externalHost = href => { try { const h = new URL(href, 'https://di.gg').hostname.toLowerCase(); return (h && !h.endsWith('di.gg') && !h.endsWith('digg.com') && !h.includes('vercel')) ? h : null; } catch { return null; } };
+    const social = href => /\b(x\.com|twitter\.com|t\.co|youtube\.com|youtu\.be|reddit\.com)\b/i.test(href);
+    // 1. rendered outbound <a> tags
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const anchors = Array.from(doc.querySelectorAll('a[target="_blank"][href], a[rel*="noopener"][href]')).map(a => a.getAttribute('href')).filter(externalHost);
+    for (const href of anchors) if (!social(href)) { try { return new URL(href, 'https://di.gg').href; } catch { return href; } }
+    for (const href of anchors) { try { return new URL(href, 'https://di.gg').href; } catch { return href; } }
+    // 2. "url":"https://..." in the RSC payload (the cluster's source posts)
+    const chunks = diggRscChunks(html);
+    if (chunks.length) {
+      const urls = [...jsUnescape(chunks.join('')).matchAll(/"url":"(https?:\/\/[^"]+)"/g)].map(m => m[1]).filter(externalHost);
+      for (const href of urls) if (!social(href)) return href;
+      if (urls.length) return urls[0];
+    }
+    return null;
+  } catch { return null; }
 }
 
 async function fetchText(url) {
@@ -761,6 +812,8 @@ export default function App() {
   const [feedLoading, setFeedLoading] = useState(false);
   const [diggItems, setDiggItems] = useState([]);
   const [diggLoading, setDiggLoading] = useState(false);
+  const [githubItems, setGithubItems] = useState([]);
+  const [githubLoading, setGithubLoading] = useState(false);
   const [feedStatuses, setFeedStatuses] = useState({});
   const [showSources, setShowSources] = useState(false);
   const [prevNewsScroll, setPrevNewsScroll] = useState(0);
@@ -891,12 +944,13 @@ export default function App() {
 
   useEffect(() => { if (tab==='news') loadFeeds(activeFeeds); if (tab==='library') loadLibrary(); }, [tab]);
 
-  const loadDigg = useCallback((which) => {
-    setDiggLoading(true);
-    fetchDiggStories(which).then(items => setDiggItems(items)).catch(() => setDiggItems([])).finally(() => setDiggLoading(false));
-  }, []);
-  // AI / Digg are live rankings — refetch on each visit to the category
-  useEffect(() => { if (tab==='news' && (category==='AI' || category==='Digg')) loadDigg(category==='AI' ? 'ai' : 'digg'); }, [tab, category, loadDigg]);
+  const refreshNews = () => {
+    if (category === 'Digg AI') { setDiggLoading(true); fetchDiggStories().then(setDiggItems).catch(() => setDiggItems([])).finally(() => setDiggLoading(false)); }
+    else if (category === 'GitHub') { setGithubLoading(true); fetchGitHubStories().then(setGithubItems).catch(() => setGithubItems([])).finally(() => setGithubLoading(false)); }
+    else loadFeeds(activeFeeds, true);
+  };
+  // Digg AI / GitHub are live rankings off di.gg/ai — refetch on each visit
+  useEffect(() => { if (tab === 'news' && (category === 'Digg AI' || category === 'GitHub')) refreshNews(); }, [tab, category]);
 
   const handleFetchUrl = async () => {
     if (!urlInput.trim()) return;
@@ -918,8 +972,32 @@ export default function App() {
     // Add to history
     if (activeText) setHistory(h => [{ title: activeTitle, text: activeText }, ...h.slice(0,9)]);
     setTab('reader');
-    // Digg story: no clean source article to extract — load the title + summary the aggregator wrote
-    if (item.isDigg) { loadText(((item.title||'') + '\n\n' + (item.description||'')).trim() || (item.title||'Digg story'), item.title || 'Digg story'); return; }
+    // Digg AI story: resolve the cluster's original source URL, run it through the fetch chain
+    if (item.isDigg) {
+      setFetching(true);
+      try {
+        const src = await resolveDiggSource(item.link);
+        if (src) {
+          const text = await fetchText(src).catch(() => '');
+          if (text && wordCount(text) >= 100) { loadText(decodeHtmlEntities(text), item.title); setActiveArticleUrl(src); saveArticle(item.title, text, src, 'Digg AI'); return; }
+        }
+        loadText(((item.title||'') + '\n\n' + (item.description||'')).trim() || (item.title||'Digg story'), item.title || 'Digg story');
+        setActiveArticleUrl(src || item.link || '');
+      } finally { setFetching(false); }
+      return;
+    }
+    // GitHub trending: open the repo page through the fetch chain
+    if (item.isGitHub) {
+      const repoUrl = item.link || ('https://github.com/' + (item.repo || ''));
+      setActiveArticleUrl(repoUrl);
+      setFetching(true);
+      try {
+        const text = await fetchText(repoUrl).catch(() => '');
+        if (text && wordCount(text) >= 100) { loadText(decodeHtmlEntities(text), item.title || item.repo); saveArticle(item.title || item.repo, text, repoUrl, 'GitHub'); return; }
+        loadText(((item.repo||'') + '\n\n' + (item.title||'') + (item.description ? '\n\n' + item.description : '')).trim() || (item.repo||'GitHub repo'), item.repo || item.title || 'GitHub repo');
+      } finally { setFetching(false); }
+      return;
+    }
     if (item.fullContent?.length > 500) { loadText(decodeHtmlEntities(item.fullContent), item.title); saveArticle(item.title, item.fullContent, item.link, item.source); return; }
     setFetching(true);
     try {
@@ -1248,22 +1326,25 @@ export default function App() {
               </div>
 
               <div style={card}>
-                {(()=>{ const isDiggCat = category==='AI'||category==='Digg'; const newsList = isDiggCat ? diggItems : visibleItems; const newsBusy = isDiggCat ? (diggLoading && diggItems.length===0) : (feedLoading && feedItems.length===0); const refresh = () => isDiggCat ? loadDigg(category==='AI'?'ai':'digg') : loadFeeds(activeFeeds,true);
-                return newsBusy ? (
+                {(()=>{
+                  const isGh = category==='GitHub', isDg = category==='Digg AI', special = isGh || isDg;
+                  const newsList = isGh ? githubItems : isDg ? diggItems : visibleItems;
+                  const newsBusy = isGh ? (githubLoading && githubItems.length===0) : isDg ? (diggLoading && diggItems.length===0) : (feedLoading && feedItems.length===0);
+                  return newsBusy ? (
                   <div style={{padding:48,textAlign:'center',color:'#222',fontSize:14,animation:'pulse 1.4s infinite'}}>Loading...</div>
                 ) : newsList.length===0 ? (
                   <div style={{padding:48,textAlign:'center'}}>
-                    <div style={{color:'#222',fontSize:14,marginBottom:12}}>{isDiggCat ? "Couldn't load Digg right now" : 'No articles'}</div>
-                    <button style={btnPrimary} onClick={refresh}>Refresh</button>
+                    <div style={{color:'#222',fontSize:14,marginBottom:12}}>{special ? `Couldn't load ${category} right now` : 'No articles'}</div>
+                    <button style={btnPrimary} onClick={refreshNews}>Refresh</button>
                   </div>
                 ) : newsList.map((item,i) => {
-                  const feed = item.isDigg ? null : allFeeds.find(f => f.id === item.feedId || f.name === item.source);
+                  const feed = (item.isDigg || item.isGitHub) ? null : allFeeds.find(f => f.id === item.feedId || f.name === item.source);
                   const fav = feed ? feedFavicon(feed.url) : '';
                   return (
                   <div key={i} onClick={()=>handleReadArticle(item)} style={{padding:'14px 16px',borderBottom:i<newsList.length-1?'1px solid #111':'none',display:'flex',gap:12,cursor:'pointer',WebkitTapHighlightColor:'transparent'}}>
                     {fav && <img src={fav} alt="" width={18} height={18} loading="lazy" onError={e=>{e.currentTarget.style.display='none';}} style={{flexShrink:0,alignSelf:'flex-start',marginTop:2,borderRadius:4,opacity:0.85}}/>}
                     <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:11,color:'#7c6af7',marginBottom:4,fontWeight:500,letterSpacing:0.3}}>{item.source}{item.isDigg && item.diggCount ? ` · ${item.diggCount}` : ''} &nbsp; {timeAgo(item.pubDate)}</div>
+                      <div style={{fontSize:11,color:item.isGitHub?'#f0a500':'#7c6af7',marginBottom:4,fontWeight:500,letterSpacing:0.3}}>{item.source}{item.isDigg && item.diggCount ? ` · ${item.diggCount}` : ''} &nbsp; {timeAgo(item.pubDate)}</div>
                       <div style={{fontSize:15,color:'#e0e0e0',lineHeight:1.45,fontWeight:400}}>{item.title}</div>
                       {item.description && <div style={{fontSize:12,color:'#555',marginTop:4,lineHeight:1.5}}>{item.description.slice(0,140)}</div>}
                     </div>
@@ -1273,8 +1354,8 @@ export default function App() {
                 }); })()}
               </div>
 
-              <button style={{...btnGhost,width:'100%',marginTop:4,marginBottom:12}} onClick={()=>{ const isDiggCat = category==='AI'||category==='Digg'; isDiggCat ? loadDigg(category==='AI'?'ai':'digg') : loadFeeds(activeFeeds,true); }}>
-                {((category==='AI'||category==='Digg') ? diggLoading : feedLoading) ? 'Refreshing...' : 'Refresh'}
+              <button style={{...btnGhost,width:'100%',marginTop:4,marginBottom:12}} onClick={refreshNews}>
+                {((category==='Digg AI') ? diggLoading : (category==='GitHub') ? githubLoading : feedLoading) ? 'Refreshing...' : 'Refresh'}
               </button>
             </div>
           )}
