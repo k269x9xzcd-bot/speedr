@@ -10,7 +10,7 @@ const SUPABASE_URL  = 'https://reojrvyczjrdaobgnrod.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlb2pydnljempyZGFvYmducm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzAyODQsImV4cCI6MjA5NDAwNjI4NH0.RziEy75n6MS6SNl_nUqLOVRSG19TNEta9AvzrT0BB14';
 
 const SEEN_KEY = 'speedr_seen_passages';
-const SEEN_WIKI_MAX = 50;
+const SEEN_WIKI_MAX = 500;
 
 function getSeenPassages() {
   try { const a = JSON.parse(localStorage.getItem(SEEN_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch { return []; }
@@ -113,6 +113,34 @@ async function fetchWikipediaPassage(track, maxTries = 10) {
       addSeenPassage('wiki:' + title);
       return { id: 'wiki:' + topic, title, text, words, track: track || 'All' };
     } catch { /* try next topic */ }
+  }
+  // Curated list exhausted (or all seen) — fall back to Wikipedia's random article endpoint.
+  return fetchWikipediaRandom(track, seenSet);
+}
+
+// Hits /page/random/summary repeatedly until we find an unseen article with enough text.
+// Used as a backstop when the curated topic list is saturated.
+async function fetchWikipediaRandom(track, seenSet, maxTries = 8) {
+  for (let i = 0; i < maxTries; i++) {
+    try {
+      const r = await fetch('https://en.wikipedia.org/api/rest_v1/page/random/summary', { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(4000) });
+      if (!r.ok) continue;
+      const data = await r.json();
+      const title = data.title;
+      if (!title || seenSet.has('wiki:' + title)) continue;
+      // Disambiguation pages and list pages make poor reading passages.
+      if (data.type === 'disambiguation') continue;
+      if (/^List of /i.test(title)) continue;
+      let text = ((data && data.extract) || '').trim();
+      if (!text) continue;
+      const fullWords = text.split(/\s+/).filter(Boolean).length;
+      if (fullWords < 100) continue;
+      text = trimToSentences(text, 220);
+      const words = text.split(/\s+/).filter(Boolean).length;
+      if (words < 100) continue;
+      addSeenPassage('wiki:' + title);
+      return { id: 'wiki:random:' + title.replace(/\s+/g, '_'), title, text, words, track: track || 'All' };
+    } catch { /* try again */ }
   }
   return null;
 }
