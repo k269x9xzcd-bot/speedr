@@ -26,6 +26,70 @@ function rawAllowed(u: string): boolean {
   try { const h = new URL(u).hostname.toLowerCase(); return RAW_ALLOWED.some(d => h === d || h.endsWith('.' + d)); } catch { return false; }
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// SSRF guard for user-supplied fetch targets (article / RSS feed URLs).
+// Rejects non-http(s) schemes and hosts that point at the internal network or
+// cloud metadata. Bare DNS hostnames are allowed (residual DNS-rebinding risk
+// is accepted — full mitigation needs resolver-level pinning).
+function isPublicHttpUrl(raw: string): boolean {
+  let u: URL;
+  try { u = new URL(raw); } catch { return false; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  const host = u.hostname.toLowerCase();
+  if (!host || host === 'localhost' || host.endsWith('.local') ||
+      host.endsWith('.internal') || host === 'metadata.google.internal') return false;
+  const h = host.replace(/^\[|\]$/g, '');
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const o = m.slice(1).map(Number);
+    if (o.some(n => n > 255)) return false;
+    const [a, b] = o;
+    if (a === 0 || a === 127 || a === 10) return false;        // this-host / loopback / 10/8
+    if (a === 169 && b === 254) return false;                  // link-local + 169.254.169.254 metadata
+    if (a === 172 && b >= 16 && b <= 31) return false;         // 172.16/12
+    if (a === 192 && b === 168) return false;                  // 192.168/16
+    if (a === 100 && b >= 64 && b <= 127) return false;        // 100.64/10 CGNAT
+    if (a >= 224) return false;                                // multicast / reserved
+    return true;
+  }
+  if (h.includes(':')) {                                       // IPv6 literal
+    if (h === '::1' || h === '::') return false;
+    if (/^f[cd]/i.test(h)) return false;                       // fc00::/7 ULA
+    if (/^fe[89ab]/i.test(h)) return false;                    // fe80::/10 link-local
+    if (/^::ffff:/i.test(h)) return false;                     // IPv4-mapped — reject to be safe
+    return true;
+  }
+  return true;
+}
+
+// Read a response body with a hard byte cap so a hostile/broken upstream can't
+// blow up memory or the feed_cache table.
+async function cappedText(res: Response, maxBytes = 5_000_000): Promise<string> {
+  const len = Number(res.headers.get('content-length') || 0);
+  if (len && len > maxBytes) throw new Error('Response too large');
+  const reader = res.body?.getReader();
+  if (!reader) return (await res.text()).slice(0, maxBytes);
+  const dec = new TextDecoder();
+  let out = '', total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maxBytes) { await reader.cancel(); throw new Error('Response too large'); }
+    out += dec.decode(value, { stream: true });
+  }
+  out += dec.decode();
+  return out;
+}
+
+// Log the real error server-side, return a generic message to the client so
+// Postgres/schema details don't leak.
+function dbErr(e: unknown, status = 500): Response {
+  console.error('db error:', e);
+  return jsonRes({ error: 'Server error' }, status);
+}
+
 function wordCount(s: string): number { return s ? s.trim().split(/\s+/).filter(Boolean).length : 0; }
 
 function getTag(block: string, tag: string): string {
@@ -167,7 +231,7 @@ async function fetchViaWayback(url: string): Promise<string> {
     if (!snap || snap.available !== true || String(snap.status) !== '200' || !snap.url) return '';
     const res = await fetch(snap.url, { headers: HEADERS, signal: AbortSignal.timeout(9000) });
     if (!res.ok) return '';
-    return extractParas(await res.text());
+    return extractParas(await cappedText(res));
   } catch { return ''; }
 }
 
@@ -175,7 +239,7 @@ async function fetchArticleDirect(url: string): Promise<string> {
   try {
     const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(8000) });
     if (!res.ok) return '';
-    return extractParas(await res.text());
+    return extractParas(await cappedText(res));
   } catch { return ''; }
 }
 
@@ -232,7 +296,13 @@ async function fetchFeedXmlCached(feedUrl: string): Promise<{ xml: string; cache
     throw new Error(`Feed returned HTTP ${res.status}`);
   }
 
-  const xml = await res.text();
+  let xml: string;
+  try {
+    xml = await cappedText(res);
+  } catch {
+    if (cached?.xml) return { xml: cached.xml, cached: true };
+    throw new Error('Feed response too large');
+  }
   if (!xml || xml.length < 100) {
     if (cached?.xml) return { xml: cached.xml, cached: true };
     throw new Error('Empty feed response');
@@ -266,7 +336,7 @@ serve(async (req: Request) => {
       user_id: user.id, title: body.title, url: body.url || null, source: body.source || null,
       text: body.text, word_count: body.text?.split(/\s+/).filter(Boolean).length || 0,
     });
-    if (error) return jsonRes({ error: error.message }, 500);
+    if (error) return dbErr(error);
     return jsonRes({ status: 'ok' });
   }
 
@@ -278,27 +348,30 @@ serve(async (req: Request) => {
       .select('id, title, url, source, word_count, saved_at')
       .eq('user_id', user.id).eq('is_deleted', false)
       .order('saved_at', { ascending: false }).limit(100);
-    if (error) return jsonRes({ error: error.message }, 500);
+    if (error) return dbErr(error);
     return jsonRes({ status: 'ok', articles: data });
   }
 
   if (mode === 'get' && req.method === 'GET') {
     const supabase = authedClient(req);
-    const articleId = url.searchParams.get('id');
+    const articleId = url.searchParams.get('id') || '';
+    if (!UUID_RE.test(articleId)) return jsonRes({ error: 'Invalid id' }, 400);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return jsonRes({ error: 'Not authenticated' }, 401);
     const { data, error } = await supabase.from('saved_articles')
       .select('*').eq('id', articleId).eq('user_id', user.id).single();
-    if (error) return jsonRes({ error: error.message }, 404);
+    if (error) return dbErr(error, 404);
     return jsonRes({ status: 'ok', article: data });
   }
 
   if (mode === 'delete' && req.method === 'DELETE') {
     const supabase = authedClient(req);
-    const articleId = url.searchParams.get('id');
+    const articleId = url.searchParams.get('id') || '';
+    if (!UUID_RE.test(articleId)) return jsonRes({ error: 'Invalid id' }, 400);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return jsonRes({ error: 'Not authenticated' }, 401);
-    await supabase.from('saved_articles').update({ is_deleted: true }).eq('id', articleId).eq('user_id', user.id);
+    const { error } = await supabase.from('saved_articles').update({ is_deleted: true }).eq('id', articleId).eq('user_id', user.id);
+    if (error) return dbErr(error);
     return jsonRes({ status: 'ok' });
   }
 
@@ -310,7 +383,7 @@ serve(async (req: Request) => {
       supabase.from('user_feeds').select('id, url, name, category, created_at').eq('user_id', user.id).order('created_at', { ascending: true }),
       supabase.from('user_feed_prefs').select('enabled_feed_ids, updated_at').eq('user_id', user.id).maybeSingle(),
     ]);
-    if (feedsRes.error) return jsonRes({ error: feedsRes.error.message }, 500);
+    if (feedsRes.error) return dbErr(feedsRes.error);
     return jsonRes({ status: 'ok', feeds: feedsRes.data || [], enabled: prefsRes.data?.enabled_feed_ids || null, enabled_updated_at: prefsRes.data?.updated_at || null });
   }
 
@@ -323,7 +396,7 @@ serve(async (req: Request) => {
     const { data, error } = await supabase.from('user_feeds')
       .upsert({ user_id: user.id, url: body.url, name: body.name, category: body.category || 'Custom' }, { onConflict: 'user_id,url' })
       .select('id, url, name, category, created_at').single();
-    if (error) return jsonRes({ error: error.message }, 500);
+    if (error) return dbErr(error);
     return jsonRes({ status: 'ok', feed: data });
   }
 
@@ -334,7 +407,7 @@ serve(async (req: Request) => {
     const body = await req.json();
     if (!body.id) return jsonRes({ error: 'Missing id' }, 400);
     const { error } = await supabase.from('user_feeds').delete().eq('id', body.id).eq('user_id', user.id);
-    if (error) return jsonRes({ error: error.message }, 500);
+    if (error) return dbErr(error);
     return jsonRes({ status: 'ok' });
   }
 
@@ -346,18 +419,18 @@ serve(async (req: Request) => {
     if (!Array.isArray(body.enabled)) return jsonRes({ error: 'enabled must be string[]' }, 400);
     const { error } = await supabase.from('user_feed_prefs')
       .upsert({ user_id: user.id, enabled_feed_ids: body.enabled, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-    if (error) return jsonRes({ error: error.message }, 500);
+    if (error) return dbErr(error);
     return jsonRes({ status: 'ok' });
   }
 
   if (mode === 'raw') {
     const rawUrl = url.searchParams.get('url') || '';
     if (!rawUrl) return jsonRes({ error: 'Missing url' }, 400);
-    if (!rawAllowed(rawUrl)) return jsonRes({ status: 'error', error: 'Host not allowlisted' }, 403);
+    if (!rawAllowed(rawUrl) || !isPublicHttpUrl(rawUrl)) return jsonRes({ status: 'error', error: 'Host not allowlisted' }, 403);
     try {
       const res = await fetch(rawUrl, { headers: HEADERS, signal: AbortSignal.timeout(10000) });
       if (!res.ok) return jsonRes({ status: 'error', error: 'HTTP ' + res.status }, 502);
-      const html = await res.text();
+      const html = await cappedText(res);
       return jsonRes({ status: 'ok', html });
     } catch (e) { return jsonRes({ status: 'error', error: String(e) }, 502); }
   }
@@ -365,6 +438,7 @@ serve(async (req: Request) => {
   if (mode === 'article') {
     const articleUrl = url.searchParams.get('url');
     if (!articleUrl) return jsonRes({ error: 'Missing url' }, 400);
+    if (!isPublicHttpUrl(articleUrl)) return jsonRes({ error: 'URL not allowed' }, 400);
     let text = await fetchViaWayback(articleUrl);
     if (wordCount(text) < 150) {
       const direct = await fetchArticleDirect(articleUrl);
@@ -378,6 +452,7 @@ serve(async (req: Request) => {
   const feedName = url.searchParams.get('name') || 'Unknown';
   const category = url.searchParams.get('cat') || 'News';
   if (!feedUrl) return jsonRes({ error: 'Missing url param' }, 400);
+  if (!isPublicHttpUrl(feedUrl)) return jsonRes({ error: 'URL not allowed' }, 400);
 
   try {
     const { xml, cached } = await fetchFeedXmlCached(feedUrl);

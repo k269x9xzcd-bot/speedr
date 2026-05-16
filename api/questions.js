@@ -4,8 +4,14 @@
 const MODEL = 'claude-haiku-4-5-20251001';
 
 function hostOf(v) { try { return new URL(v).hostname.toLowerCase(); } catch { return ''; } }
+// Exact-host allowlist. No `*.vercel.app` wildcard: this endpoint spends the
+// server-side ANTHROPIC_API_KEY, so any vercel.app site must not be able to
+// invoke it from the browser. Extra hosts (e.g. preview deploys) can be added
+// via ALLOWED_ORIGIN_HOSTS (comma-separated) in the Vercel project settings.
+const EXTRA_HOSTS = (process.env.ALLOWED_ORIGIN_HOSTS || '')
+  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 function isAllowedHost(h) {
-  return h === 'myspeedr.vercel.app' || h === 'localhost' || h === '127.0.0.1' || h.endsWith('.vercel.app');
+  return h === 'myspeedr.vercel.app' || h === 'localhost' || h === '127.0.0.1' || EXTRA_HOSTS.includes(h);
 }
 
 export default async function handler(req, res) {
@@ -53,7 +59,8 @@ export default async function handler(req, res) {
     let arr;
     try { arr = JSON.parse(m[0]); } catch { res.status(502).json({ error: 'Model returned invalid JSON' }); return; }
     arr = (Array.isArray(arr) ? arr : []).filter(
-      x => x && typeof x.q === 'string' && Array.isArray(x.choices) && x.choices.length >= 2 && Number.isInteger(x.answer)
+      x => x && typeof x.q === 'string' && Array.isArray(x.choices) && x.choices.length >= 2
+        && Number.isInteger(x.answer) && x.answer >= 0 && x.answer < x.choices.length
     );
     if (arr.length < 3) { res.status(502).json({ error: 'Too few valid questions returned' }); return; }
     res.status(200).json({ questions: arr });

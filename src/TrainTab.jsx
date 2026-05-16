@@ -97,13 +97,15 @@ async function fetchWikipediaPassage(track, maxTries = 10) {
   const seenSet = new Set(getSeenPassages());
   const pool = [...topicsForTrack(track)].sort(() => Math.random() - 0.5);
   for (const topic of pool.slice(0, maxTries)) {
-    if (seenSet.has('wiki:' + topic.replace(/_/g, ' '))) continue;
+    // Seen-state is keyed by the canonical passage id ('wiki:' + topic — same
+    // string returned below and written by addSeenPassage), so the check and
+    // the write can't drift apart when Wikipedia normalizes the title.
+    if (seenSet.has('wiki:' + topic)) continue;
     try {
       const r = await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(topic), { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(4000) });
       if (!r.ok) continue;
       const data = await r.json();
       const title = data.title || topic.replace(/_/g, ' ');
-      if (seenSet.has('wiki:' + title)) continue;
       let text = ((data && data.extract) || '').trim();
       if (!text) continue;
       if (text.split(/\s+/).filter(Boolean).length < 100) continue;
@@ -127,7 +129,7 @@ async function fetchWikipediaRandom(track, seenSet, maxTries = 8) {
       if (!r.ok) continue;
       const data = await r.json();
       const title = data.title;
-      if (!title || seenSet.has('wiki:' + title)) continue;
+      if (!title || seenSet.has('wiki:random:' + title.replace(/\s+/g, '_'))) continue;
       // Disambiguation pages and list pages make poor reading passages.
       if (data.type === 'disambiguation') continue;
       if (/^List of /i.test(title)) continue;
@@ -305,7 +307,8 @@ function parseQuestions(text) {
     if (!m) return null;
     const arr = JSON.parse(m[0]);
     if (!Array.isArray(arr)) return null;
-    const out = arr.filter(x => x && typeof x.q === 'string' && Array.isArray(x.choices) && x.choices.length >= 2 && Number.isInteger(x.answer));
+    const out = arr.filter(x => x && typeof x.q === 'string' && Array.isArray(x.choices) && x.choices.length >= 2
+      && Number.isInteger(x.answer) && x.answer >= 0 && x.answer < x.choices.length);
     return out.length >= 3 ? out : null;
   } catch { return null; }
 }
@@ -377,7 +380,9 @@ function MiniReader({ text, targetWpm, onFinish, onReadingChange, hashMarksOn = 
   useEffect(() => {
     if (idx >= words.length) { finish(); return; }
     if (paused || !started) return;
-    const t = setTimeout(() => setIdx(i => i + 1), Math.max(20, 60000 / targetWpm));
+    // Clamp before dividing: a restored profile can carry targetWpm 0/undefined,
+    // and 60000/0 = Infinity would make setTimeout never fire (reader hangs).
+    const t = setTimeout(() => setIdx(i => i + 1), Math.max(20, 60000 / Math.max(60, targetWpm || 60)));
     return () => clearTimeout(t);
   }, [idx, paused, started, targetWpm, words.length, finish]);
 
@@ -580,7 +585,7 @@ export default function TrainTab({ readerWpm }) {
     }
 
     const blank = new Array(final.length).fill(-1);
-    if (p && p.id && p.id.startsWith('wiki:')) addSeenPassage('wiki:' + p.title);
+    if (p && p.id && p.id.startsWith('wiki:')) addSeenPassage(p.id);
     else if (p) addSeenPassage('baked:' + p.id);
     setPassage(p);
     setQuestions(final);
@@ -591,7 +596,7 @@ export default function TrainTab({ readerWpm }) {
 
   const skipArticle = () => {
     if (passage) {
-      if (passage.id && passage.id.startsWith('wiki:')) addSeenPassage('wiki:' + passage.title);
+      if (passage.id && passage.id.startsWith('wiki:')) addSeenPassage(passage.id);
       else addSeenPassage('baked:' + passage.id);
     }
     start();
