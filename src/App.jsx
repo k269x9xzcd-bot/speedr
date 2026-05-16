@@ -851,6 +851,55 @@ async function deleteArticleRemote(id) {
   } catch {}
 }
 
+async function loadFeedsRemote() {
+  try {
+    const token = await getOrCreateAnonToken();
+    if (!token) return null;
+    const res = await fetch(SUPABASE_RSS + '?mode=feeds-list', { headers: { 'Authorization': 'Bearer ' + token } });
+    const data = await res.json();
+    if (data.status !== 'ok') return null;
+    return { feeds: data.feeds || [], enabled: data.enabled, enabled_updated_at: data.enabled_updated_at };
+  } catch { return null; }
+}
+
+async function addFeedRemote(feed) {
+  try {
+    const token = await getOrCreateAnonToken();
+    if (!token) return null;
+    const res = await fetch(SUPABASE_RSS + '?mode=feeds-add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ url: feed.url, name: feed.name, category: feed.category || 'Custom' }),
+    });
+    const data = await res.json();
+    return data.feed || null;
+  } catch { return null; }
+}
+
+async function removeFeedRemote(id) {
+  try {
+    const token = await getOrCreateAnonToken();
+    if (!token) return;
+    await fetch(SUPABASE_RSS + '?mode=feeds-remove', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ id }),
+    });
+  } catch {}
+}
+
+async function pushFeedPrefsRemote(enabled) {
+  try {
+    const token = await getOrCreateAnonToken();
+    if (!token) return;
+    await fetch(SUPABASE_RSS + '?mode=feeds-prefs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+      body: JSON.stringify({ enabled }),
+    });
+  } catch {}
+}
+
 function CopyButton({ text, label }) {
   const [copied, setCopied] = useState(false);
   const copy = () => navigator.clipboard?.writeText(text).then(() => { setCopied(true); setTimeout(()=>setCopied(false),2000); });
@@ -926,6 +975,9 @@ export default function App() {
   const rewindRef = useRef(null);
   const fastFwdRef = useRef(null);
   const holdTimerRef = useRef(null);
+  const prefsPushTimer = useRef(null);
+  const feedHoldTimer = useRef(null);
+  const feedHoldFired = useRef(false);
   const baseDelay = 60000 / wpm;
 
   // iOS Safari: nudge the address bar away on load (no-op in standalone PWA)
@@ -945,6 +997,50 @@ export default function App() {
 
   const allFeeds = useMemo(() => [...ALL_FEEDS, ...extraFeeds], [extraFeeds]);
   const activeFeeds = useMemo(() => allFeeds.filter(f => enabledFeeds.includes(f.id)), [allFeeds, enabledFeeds]);
+
+  // One-time sync: pull custom feeds + enabled prefs from Supabase, merge with local.
+  // Local-only feeds (no matching url remotely) get pushed up. Remote-only get pulled down.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const remote = await loadFeedsRemote();
+      if (cancelled || !remote) return;
+      const remoteByUrl = new Map(remote.feeds.map(f => [f.url, f]));
+      const localByUrl = new Map(extraFeeds.map(f => [f.url, f]));
+
+      const merged = [];
+      for (const r of remote.feeds) merged.push({ id: r.id, name: r.name, url: r.url, category: r.category || 'Custom' });
+      for (const l of extraFeeds) {
+        if (!remoteByUrl.has(l.url)) {
+          const pushed = await addFeedRemote(l);
+          if (pushed) merged.push({ id: pushed.id, name: pushed.name, url: pushed.url, category: pushed.category || 'Custom' });
+          else merged.push(l);
+        }
+      }
+      if (!cancelled) {
+        setExtraFeeds(merged);
+        localStorage.setItem('speedr_custom', JSON.stringify(merged));
+
+        // Re-key enabledFeeds: replace local temp ids ('custom_*') with the canonical remote uuid for the same url.
+        const localToRemote = new Map();
+        for (const l of extraFeeds) {
+          const r = remoteByUrl.get(l.url) || merged.find(m => m.url === l.url);
+          if (r && r.id !== l.id) localToRemote.set(l.id, r.id);
+        }
+        let nextEnabled = enabledFeeds.map(id => localToRemote.get(id) || id);
+
+        if (remote.enabled && Array.isArray(remote.enabled)) {
+          const localTs = parseInt(localStorage.getItem('speedr_feeds_local_ts') || '0');
+          const remoteTs = remote.enabled_updated_at ? Date.parse(remote.enabled_updated_at) : 0;
+          if (remoteTs >= localTs) nextEnabled = remote.enabled;
+        }
+        setEnabledFeeds(nextEnabled);
+        localStorage.setItem('speedr_feeds', JSON.stringify(nextEnabled));
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Load text into reader
   const loadText = useCallback((text, title = '') => {
@@ -1163,18 +1259,53 @@ export default function App() {
   const toggleFeed = id => {
     const u = enabledFeeds.includes(id) ? enabledFeeds.filter(f=>f!==id) : [...enabledFeeds, id];
     setEnabledFeeds(u); localStorage.setItem('speedr_feeds', JSON.stringify(u));
+    localStorage.setItem('speedr_feeds_local_ts', String(Date.now()));
+    if (prefsPushTimer.current) clearTimeout(prefsPushTimer.current);
+    prefsPushTimer.current = setTimeout(() => pushFeedPrefsRemote(u), 500);
   };
 
-  const addCustomFeed = () => {
+  const addCustomFeed = async () => {
     if (!customUrl.trim()) return;
     const u = customUrl.trim();
     const name = u.replace(/^https?:\/\/(www\.)?/,'').split('/')[0];
-    const id = 'custom_' + Date.now();
-    const feed = { id, name, url:u, category:'Custom' };
+    const tempId = 'custom_' + Date.now();
+    const feed = { id: tempId, name, url: u, category: 'Custom' };
     const updated = [...extraFeeds, feed];
     setExtraFeeds(updated); localStorage.setItem('speedr_custom', JSON.stringify(updated));
-    setEnabledFeeds(p => { const n=[...p,id]; localStorage.setItem('speedr_feeds',JSON.stringify(n)); return n; });
+    setEnabledFeeds(p => { const n=[...p, tempId]; localStorage.setItem('speedr_feeds', JSON.stringify(n)); localStorage.setItem('speedr_feeds_local_ts', String(Date.now())); return n; });
     setCustomUrl('');
+
+    // Push to Supabase; on success, swap temp id for canonical uuid in both lists.
+    const remote = await addFeedRemote(feed);
+    if (remote && remote.id !== tempId) {
+      setExtraFeeds(prev => {
+        const next = prev.map(f => f.id === tempId ? { ...f, id: remote.id } : f);
+        localStorage.setItem('speedr_custom', JSON.stringify(next));
+        return next;
+      });
+      setEnabledFeeds(prev => {
+        const next = prev.map(id => id === tempId ? remote.id : id);
+        localStorage.setItem('speedr_feeds', JSON.stringify(next));
+        return next;
+      });
+      pushFeedPrefsRemote(enabledFeeds.includes(tempId) ? enabledFeeds.map(id => id === tempId ? remote.id : id) : [...enabledFeeds, remote.id]);
+    }
+  };
+
+  const removeCustomFeed = (id) => {
+    setExtraFeeds(prev => {
+      const next = prev.filter(f => f.id !== id);
+      localStorage.setItem('speedr_custom', JSON.stringify(next));
+      return next;
+    });
+    setEnabledFeeds(prev => {
+      const next = prev.filter(x => x !== id);
+      localStorage.setItem('speedr_feeds', JSON.stringify(next));
+      localStorage.setItem('speedr_feeds_local_ts', String(Date.now()));
+      pushFeedPrefsRemote(next);
+      return next;
+    });
+    removeFeedRemote(id);
   };
 
   // Stats
@@ -1465,7 +1596,13 @@ export default function App() {
                       const on = enabledFeeds.includes(f.id);
                       const st = feedStatuses[f.id];
                       return (
-                        <div key={f.id} onClick={()=>toggleFeed(f.id)} style={{padding:'12px 16px',display:'flex',alignItems:'center',gap:12,cursor:'pointer',borderBottom:i<catFeeds.length-1?'1px solid #0f0f0f':'none'}}>
+                        <div
+                          key={f.id}
+                          onClick={()=>{ if (feedHoldFired.current) { feedHoldFired.current = false; return; } toggleFeed(f.id); }}
+                          onPointerDown={cat==='Custom' ? (()=>{ feedHoldFired.current = false; if(feedHoldTimer.current) clearTimeout(feedHoldTimer.current); feedHoldTimer.current = setTimeout(()=>{ feedHoldFired.current = true; if (confirm('Remove "' + f.name + '"?')) removeCustomFeed(f.id); }, 600); }) : undefined}
+                          onPointerUp={cat==='Custom' ? (()=>{ if(feedHoldTimer.current) { clearTimeout(feedHoldTimer.current); feedHoldTimer.current = null; } }) : undefined}
+                          onPointerLeave={cat==='Custom' ? (()=>{ if(feedHoldTimer.current) { clearTimeout(feedHoldTimer.current); feedHoldTimer.current = null; } }) : undefined}
+                          style={{padding:'12px 16px',display:'flex',alignItems:'center',gap:12,cursor:'pointer',borderBottom:i<catFeeds.length-1?'1px solid #0f0f0f':'none'}}>
                           <div style={{flex:1}}>
                             <div style={{fontSize:14,color:on?'#e0e0e0':'#555',fontWeight:400,transition:'color 0.15s'}}>{f.name}</div>
                             <div style={{fontSize:11,marginTop:2,color:st==='ok'?'#50d89a':st==='fail'?'#e05252':'#333'}}>{st==='ok'?'working':st==='fail'?'failed':'not tested'}</div>
