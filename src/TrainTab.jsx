@@ -110,7 +110,7 @@ async function fetchWikipediaPassage(track, maxTries = 10) {
       text = trimToSentences(text, 220);
       const words = text.split(/\s+/).filter(Boolean).length;
       if (words < 100) continue;
-      addSeenPassage('wiki:' + title);
+      // Do NOT mark seen here — caller marks it only after questions generate successfully.
       return { id: 'wiki:' + topic, title, text, words, track: track || 'All' };
     } catch { /* try next topic */ }
   }
@@ -138,7 +138,7 @@ async function fetchWikipediaRandom(track, seenSet, maxTries = 8) {
       text = trimToSentences(text, 220);
       const words = text.split(/\s+/).filter(Boolean).length;
       if (words < 100) continue;
-      addSeenPassage('wiki:' + title);
+      // Do NOT mark seen here — caller marks it only after questions generate successfully.
       return { id: 'wiki:random:' + title.replace(/\s+/g, '_'), title, text, words, track: track || 'All' };
     } catch { /* try again */ }
   }
