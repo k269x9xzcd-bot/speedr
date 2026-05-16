@@ -8,7 +8,6 @@ const CORS = {
   'Cache-Control': 'public, max-age=300',
 };
 
-// Googlebot UA: some paywalled sites serve full article text to crawlers for SEO.
 const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
   'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -16,9 +15,12 @@ const HEADERS = {
 };
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
-const SUPABASE_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') ?? '';
+const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
-// Hostname allowlist for `mode=raw` (full-HTML proxy — restricted to avoid being an open SSRF).
+// Cache freshness: even with no etag/last-modified, treat cached XML <10 min old as valid (skip upstream).
+const CACHE_TTL_MS = 10 * 60 * 1000;
+
 const RAW_ALLOWED = ['di.gg', 'digg.com'];
 function rawAllowed(u: string): boolean {
   try { const h = new URL(u).hostname.toLowerCase(); return RAW_ALLOWED.some(d => h === d || h.endsWith('.' + d)); } catch { return false; }
@@ -38,6 +40,12 @@ function getRawTag(block: string, tag: string): string {
   if (cdataMatch) return cdataMatch[1].trim();
   const match = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\/${tag}>`, 'i'));
   return match ? match[1].trim() : '';
+}
+
+function getAttr(block: string, tag: string, attr: string): string {
+  const re = new RegExp(`<${tag}\\b[^>]*\\b${attr}=["']([^"']+)["']`, 'i');
+  const m = block.match(re);
+  return m ? m[1] : '';
 }
 
 function stripHtml(html: string): string {
@@ -77,22 +85,75 @@ function getLinkAtom(block: string): string {
   return getTag(block, 'link');
 }
 
+function resolveUrl(href: string, base: string): string {
+  if (!href) return '';
+  if (/^[a-z]+:\/\//i.test(href)) return href;
+  if (!base) return href;
+  try { return new URL(href, base).toString(); } catch { return href; }
+}
+
+// Find the first usable image URL for an item:
+//   1. <enclosure type="image/*" url="..."> (rare but spec)
+//   2. <media:content medium="image" url="...">  /  <media:thumbnail url="...">
+//   3. First <img src="..."> inside description / content:encoded
+function extractImage(block: string, base: string): string {
+  let m = block.match(/<enclosure\b[^>]*\btype=["']image\/[^"']+["'][^>]*\burl=["']([^"']+)["']/i);
+  if (m) return resolveUrl(m[1], base);
+  m = block.match(/<enclosure\b[^>]*\burl=["']([^"']+)["'][^>]*\btype=["']image\/[^"']+["']/i);
+  if (m) return resolveUrl(m[1], base);
+  m = block.match(/<media:(?:content|thumbnail)\b[^>]*\burl=["']([^"']+)["']/i);
+  if (m) return resolveUrl(m[1], base);
+  const contentBlock = getRawTag(block, 'content:encoded') || getRawTag(block, 'description') || getRawTag(block, 'content') || getRawTag(block, 'summary');
+  if (contentBlock) {
+    const im = contentBlock.match(/<img\b[^>]*\bsrc=["']([^"']+)["']/i);
+    if (im) return resolveUrl(im[1], base);
+  }
+  return '';
+}
+
+function getChannelBase(xml: string): string {
+  // Try atom <feed><link rel="alternate" href="..."> first, then RSS <channel><link>http://...</link>.
+  const headXml = xml.slice(0, 4000);
+  const atom = headXml.match(/<link\b[^>]*rel=["']alternate["'][^>]*href=["']([^"']+)["']/i);
+  if (atom) return atom[1];
+  const ch = headXml.match(/<channel\b[\s\S]*?<link\b[^>]*>([\s\S]*?)<\/link>/i);
+  if (ch) {
+    const t = ch[1].replace(/<[^>]+>/g, '').trim();
+    if (t) return t;
+  }
+  return '';
+}
+
 function parseRSS(xml: string, feedName: string, category: string) {
   const isAtom = xml.includes('<feed') && !xml.includes('<rss');
   const itemTag = isAtom ? 'entry' : 'item';
+  const base = getChannelBase(xml);
   const items: object[] = [];
   const regex = new RegExp(`<${itemTag}[\\s>][\\s\\S]*?<\/${itemTag}>`, 'gi');
   const blocks = xml.match(regex) || [];
   for (const block of blocks.slice(0, 20)) {
     const title = getTag(block, 'title');
     if (!title) continue;
-    const link = isAtom ? getLinkAtom(block) : getTag(block, 'link');
+    const rawLink = isAtom ? getLinkAtom(block) : getTag(block, 'link');
+    const link = resolveUrl(rawLink, base);
     const description = stripHtml(getRawTag(block, 'description') || getRawTag(block, 'summary')).slice(0, 400);
     const contentEncoded = stripHtml(getRawTag(block, 'content:encoded'));
     const contentRaw = stripHtml(getRawTag(block, 'content'));
     const fullContent = contentEncoded.length > contentRaw.length ? contentEncoded : contentRaw;
     const pubDate = getTag(block, 'pubDate') || getTag(block, 'published') || getTag(block, 'updated') || '';
-    items.push({ title, link, description, fullContent: fullContent.length > description.length ? fullContent : '', pubDate, source: feedName, category });
+    const guid = getTag(block, 'guid') || getTag(block, 'id') || link || title;
+    const image = extractImage(block, base);
+    items.push({
+      guid,
+      title,
+      link,
+      description,
+      fullContent: fullContent.length > description.length ? fullContent : '',
+      pubDate,
+      image,
+      source: feedName,
+      category,
+    });
   }
   return items;
 }
@@ -118,14 +179,76 @@ async function fetchArticleDirect(url: string): Promise<string> {
   } catch { return ''; }
 }
 
-function jsonRes(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
+function jsonRes(body: unknown, status = 200, extraHeaders: Record<string,string> = {}) {
+  return new Response(JSON.stringify(body), { status, headers: { ...CORS, ...extraHeaders, 'Content-Type': 'application/json' } });
 }
 
 function authedClient(req: Request) {
-  return createClient(SUPABASE_URL, SUPABASE_KEY, {
+  return createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: { headers: { Authorization: req.headers.get('Authorization') || '' } },
   });
+}
+
+// Service-role client — bypasses RLS, used only for the server-side feed cache table.
+const serviceClient = SUPABASE_SERVICE_KEY ? createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY) : null;
+
+async function fetchFeedXmlCached(feedUrl: string): Promise<{ xml: string; cached: boolean }> {
+  let cached: { etag: string | null; last_modified: string | null; xml: string | null; fetched_at: string | null } | null = null;
+  if (serviceClient) {
+    const { data } = await serviceClient.from('feed_cache')
+      .select('etag, last_modified, xml, fetched_at')
+      .eq('url', feedUrl)
+      .maybeSingle();
+    cached = data;
+  }
+
+  // Hard cache hit: cached XML newer than CACHE_TTL_MS → skip upstream entirely.
+  if (cached?.xml && cached.fetched_at) {
+    const age = Date.now() - Date.parse(cached.fetched_at);
+    if (age < CACHE_TTL_MS) return { xml: cached.xml, cached: true };
+  }
+
+  const condHeaders: Record<string, string> = {
+    'User-Agent': 'Mozilla/5.0 (compatible; Speedr/1.0)',
+    'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*',
+  };
+  if (cached?.etag) condHeaders['If-None-Match'] = cached.etag;
+  if (cached?.last_modified) condHeaders['If-Modified-Since'] = cached.last_modified;
+
+  const res = await fetch(feedUrl, { headers: condHeaders, signal: AbortSignal.timeout(10000) });
+
+  if (res.status === 304 && cached?.xml) {
+    if (serviceClient) {
+      await serviceClient.from('feed_cache')
+        .update({ fetched_at: new Date().toISOString() })
+        .eq('url', feedUrl);
+    }
+    return { xml: cached.xml, cached: true };
+  }
+
+  if (!res.ok) {
+    // Upstream failed but we have a cached copy — serve stale rather than erroring.
+    if (cached?.xml) return { xml: cached.xml, cached: true };
+    throw new Error(`Feed returned HTTP ${res.status}`);
+  }
+
+  const xml = await res.text();
+  if (!xml || xml.length < 100) {
+    if (cached?.xml) return { xml: cached.xml, cached: true };
+    throw new Error('Empty feed response');
+  }
+
+  if (serviceClient) {
+    await serviceClient.from('feed_cache').upsert({
+      url: feedUrl,
+      etag: res.headers.get('etag'),
+      last_modified: res.headers.get('last-modified'),
+      xml,
+      fetched_at: new Date().toISOString(),
+    }, { onConflict: 'url' });
+  }
+
+  return { xml, cached: false };
 }
 
 serve(async (req: Request) => {
@@ -134,55 +257,42 @@ serve(async (req: Request) => {
   const url = new URL(req.url);
   const mode = url.searchParams.get('mode');
 
-  // -- LIBRARY: save article --
   if (mode === 'save' && req.method === 'POST') {
     const supabase = authedClient(req);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return jsonRes({ error: 'Not authenticated' }, 401);
     const body = await req.json();
     const { error } = await supabase.from('saved_articles').insert({
-      user_id: user.id,
-      title: body.title,
-      url: body.url || null,
-      source: body.source || null,
-      text: body.text,
-      word_count: body.text?.split(/\s+/).filter(Boolean).length || 0,
+      user_id: user.id, title: body.title, url: body.url || null, source: body.source || null,
+      text: body.text, word_count: body.text?.split(/\s+/).filter(Boolean).length || 0,
     });
     if (error) return jsonRes({ error: error.message }, 500);
     return jsonRes({ status: 'ok' });
   }
 
-  // -- LIBRARY: list articles --
   if (mode === 'library' && req.method === 'GET') {
     const supabase = authedClient(req);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return jsonRes({ error: 'Not authenticated' }, 401);
     const { data, error } = await supabase.from('saved_articles')
       .select('id, title, url, source, word_count, saved_at')
-      .eq('user_id', user.id)
-      .eq('is_deleted', false)
-      .order('saved_at', { ascending: false })
-      .limit(100);
+      .eq('user_id', user.id).eq('is_deleted', false)
+      .order('saved_at', { ascending: false }).limit(100);
     if (error) return jsonRes({ error: error.message }, 500);
     return jsonRes({ status: 'ok', articles: data });
   }
 
-  // -- LIBRARY: get article text --
   if (mode === 'get' && req.method === 'GET') {
     const supabase = authedClient(req);
     const articleId = url.searchParams.get('id');
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return jsonRes({ error: 'Not authenticated' }, 401);
     const { data, error } = await supabase.from('saved_articles')
-      .select('*')
-      .eq('id', articleId)
-      .eq('user_id', user.id)
-      .single();
+      .select('*').eq('id', articleId).eq('user_id', user.id).single();
     if (error) return jsonRes({ error: error.message }, 404);
     return jsonRes({ status: 'ok', article: data });
   }
 
-  // -- LIBRARY: delete article --
   if (mode === 'delete' && req.method === 'DELETE') {
     const supabase = authedClient(req);
     const articleId = url.searchParams.get('id');
@@ -192,7 +302,6 @@ serve(async (req: Request) => {
     return jsonRes({ status: 'ok' });
   }
 
-  // -- FEEDS: list custom feeds + enabled toggle state --
   if (mode === 'feeds-list' && req.method === 'GET') {
     const supabase = authedClient(req);
     const { data: { user } } = await supabase.auth.getUser();
@@ -202,15 +311,9 @@ serve(async (req: Request) => {
       supabase.from('user_feed_prefs').select('enabled_feed_ids, updated_at').eq('user_id', user.id).maybeSingle(),
     ]);
     if (feedsRes.error) return jsonRes({ error: feedsRes.error.message }, 500);
-    return jsonRes({
-      status: 'ok',
-      feeds: feedsRes.data || [],
-      enabled: prefsRes.data?.enabled_feed_ids || null,
-      enabled_updated_at: prefsRes.data?.updated_at || null,
-    });
+    return jsonRes({ status: 'ok', feeds: feedsRes.data || [], enabled: prefsRes.data?.enabled_feed_ids || null, enabled_updated_at: prefsRes.data?.updated_at || null });
   }
 
-  // -- FEEDS: add custom feed (upsert on user_id+url) --
   if (mode === 'feeds-add' && req.method === 'POST') {
     const supabase = authedClient(req);
     const { data: { user } } = await supabase.auth.getUser();
@@ -218,19 +321,12 @@ serve(async (req: Request) => {
     const body = await req.json();
     if (!body.url || !body.name) return jsonRes({ error: 'Missing url or name' }, 400);
     const { data, error } = await supabase.from('user_feeds')
-      .upsert({
-        user_id: user.id,
-        url: body.url,
-        name: body.name,
-        category: body.category || 'Custom',
-      }, { onConflict: 'user_id,url' })
-      .select('id, url, name, category, created_at')
-      .single();
+      .upsert({ user_id: user.id, url: body.url, name: body.name, category: body.category || 'Custom' }, { onConflict: 'user_id,url' })
+      .select('id, url, name, category, created_at').single();
     if (error) return jsonRes({ error: error.message }, 500);
     return jsonRes({ status: 'ok', feed: data });
   }
 
-  // -- FEEDS: remove custom feed --
   if (mode === 'feeds-remove' && req.method === 'POST') {
     const supabase = authedClient(req);
     const { data: { user } } = await supabase.auth.getUser();
@@ -242,7 +338,6 @@ serve(async (req: Request) => {
     return jsonRes({ status: 'ok' });
   }
 
-  // -- FEEDS: upsert enabled-feed selection --
   if (mode === 'feeds-prefs' && req.method === 'POST') {
     const supabase = authedClient(req);
     const { data: { user } } = await supabase.auth.getUser();
@@ -255,7 +350,6 @@ serve(async (req: Request) => {
     return jsonRes({ status: 'ok' });
   }
 
-  // -- RAW HTML FETCH (allowlisted hosts only — for scraping pages like di.gg/ai) --
   if (mode === 'raw') {
     const rawUrl = url.searchParams.get('url') || '';
     if (!rawUrl) return jsonRes({ error: 'Missing url' }, 400);
@@ -265,12 +359,9 @@ serve(async (req: Request) => {
       if (!res.ok) return jsonRes({ status: 'error', error: 'HTTP ' + res.status }, 502);
       const html = await res.text();
       return jsonRes({ status: 'ok', html });
-    } catch (e) {
-      return jsonRes({ status: 'error', error: String(e) }, 502);
-    }
+    } catch (e) { return jsonRes({ status: 'error', error: String(e) }, 502); }
   }
 
-  // -- ARTICLE TEXT FETCH --  (Wayback static snapshot -> Googlebot live fetch)
   if (mode === 'article') {
     const articleUrl = url.searchParams.get('url');
     if (!articleUrl) return jsonRes({ error: 'Missing url' }, 400);
@@ -282,23 +373,17 @@ serve(async (req: Request) => {
     return jsonRes({ status: 'ok', text, words: wordCount(text) });
   }
 
-  // -- RSS FEED --
+  // -- RSS FEED (cached) --
   const feedUrl = url.searchParams.get('url');
   const feedName = url.searchParams.get('name') || 'Unknown';
   const category = url.searchParams.get('cat') || 'News';
   if (!feedUrl) return jsonRes({ error: 'Missing url param' }, 400);
 
   try {
-    const res = await fetch(feedUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Speedr/1.0)', 'Accept': 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*' },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) throw new Error(`Feed returned HTTP ${res.status}`);
-    const xml = await res.text();
-    if (!xml || xml.length < 100) throw new Error('Empty feed response');
+    const { xml, cached } = await fetchFeedXmlCached(feedUrl);
     const items = parseRSS(xml, feedName, category);
     if (items.length === 0) throw new Error('No items parsed from feed');
-    return jsonRes({ status: 'ok', items, count: items.length });
+    return jsonRes({ status: 'ok', items, count: items.length, cached });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return jsonRes({ status: 'error', error: msg }, 502);

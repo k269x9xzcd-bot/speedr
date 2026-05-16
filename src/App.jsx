@@ -707,16 +707,41 @@ function decodeAllOrigins(raw) {
   return raw;
 }
 
+function resolveFeedUrl(href, base) {
+  if (!href) return '';
+  if (/^[a-z]+:\/\//i.test(href)) return href;
+  if (!base) return href;
+  try { return new URL(href, base).toString(); } catch { return href; }
+}
+
+function extractFeedImage(item, base) {
+  const enc = Array.from(item.querySelectorAll('enclosure')).find(e => (e.getAttribute('type')||'').startsWith('image/'));
+  if (enc) return resolveFeedUrl(enc.getAttribute('url') || '', base);
+  const media = item.querySelector('content[url], thumbnail[url]');
+  if (media) return resolveFeedUrl(media.getAttribute('url') || '', base);
+  const contentEl = item.querySelector('encoded') || item.querySelector('description') || item.querySelector('content') || item.querySelector('summary');
+  const html = contentEl?.textContent || '';
+  const imgMatch = html.match(/<img\b[^>]*\bsrc=["']([^"']+)["']/i);
+  if (imgMatch) return resolveFeedUrl(imgMatch[1], base);
+  return '';
+}
+
 function parseRSSXML(xml, feed) {
   const isAtom = !!xml.match(/<feed[\s>]/);
-  const items = Array.from(new DOMParser().parseFromString(xml,'text/xml').querySelectorAll(isAtom?'entry':'item')).slice(0,20);
+  const doc = new DOMParser().parseFromString(xml,'text/xml');
+  const channelLink = doc.querySelector('channel > link, feed > link[rel="alternate"], feed > link');
+  const base = (channelLink?.textContent?.trim() || channelLink?.getAttribute('href') || '');
+  const items = Array.from(doc.querySelectorAll(isAtom?'entry':'item')).slice(0,20);
   return items.map(item => {
     const get = sel => item.querySelector(sel)?.textContent?.trim() || '';
     const title = decodeHtmlEntities(get('title'));
-    const link = isAtom ? (item.querySelector('link[rel=alternate]')?.getAttribute('href') || item.querySelector('link')?.getAttribute('href') || '') : get('link');
+    const rawLink = isAtom ? (item.querySelector('link[rel=alternate]')?.getAttribute('href') || item.querySelector('link')?.getAttribute('href') || '') : get('link');
+    const link = resolveFeedUrl(rawLink, base);
     const desc = stripHtml(get('description') || get('summary')).trim();
     const full = stripHtml(get('content') || '').trim();
-    return { title, link, description:desc.slice(0,200), fullContent:decodeHtmlEntities(full.length>desc.length?full:''), pubDate:get('pubDate')||get('published')||get('updated')||'', source:feed.name, category:feed.category, feedId:feed.id };
+    const guid = get('guid') || get('id') || link || title;
+    const image = extractFeedImage(item, base);
+    return { guid, title, link, description:desc.slice(0,200), fullContent:decodeHtmlEntities(full.length>desc.length?full:''), pubDate:get('pubDate')||get('published')||get('updated')||'', image, source:feed.name, category:feed.category, feedId:feed.id };
   }).filter(i=>i.title);
 }
 
@@ -1564,13 +1589,14 @@ export default function App() {
                   const feed = (item.isDigg || item.isGitHub) ? null : allFeeds.find(f => f.id === item.feedId || f.name === item.source);
                   const fav = feed ? feedFavicon(feed.url) : '';
                   return (
-                  <div key={i} onClick={()=>handleReadArticle(item)} style={{padding:'14px 16px',borderBottom:i<newsList.length-1?'1px solid #111':'none',display:'flex',gap:12,cursor:'pointer',WebkitTapHighlightColor:'transparent'}}>
+                  <div key={item.guid || item.link || i} onClick={()=>handleReadArticle(item)} style={{padding:'14px 16px',borderBottom:i<newsList.length-1?'1px solid #111':'none',display:'flex',gap:12,cursor:'pointer',WebkitTapHighlightColor:'transparent'}}>
                     {fav && <img src={fav} alt="" width={18} height={18} loading="lazy" onError={e=>{e.currentTarget.style.display='none';}} style={{flexShrink:0,alignSelf:'flex-start',marginTop:2,borderRadius:4,opacity:0.85}}/>}
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{fontSize:11,color:item.isGitHub?'#f0a500':'#7c6af7',marginBottom:4,fontWeight:500,letterSpacing:0.3}}>{item.source}{item.isDigg && item.diggCount ? ` · ${item.diggCount}` : ''} &nbsp; {timeAgo(item.pubDate)}</div>
                       <div style={{fontSize:15,color:'#e0e0e0',lineHeight:1.45,fontWeight:400}}>{item.title}</div>
                       {item.description && <div style={{fontSize:12,color:'#555',marginTop:4,lineHeight:1.5}}>{item.description.slice(0,140)}</div>}
                     </div>
+                    {item.image && <img src={item.image} alt="" loading="lazy" decoding="async" onError={e=>{e.currentTarget.style.display='none';}} style={{width:64,height:64,objectFit:'cover',borderRadius:8,flexShrink:0,alignSelf:'center',background:'#0a0a0a'}}/>}
                     <div style={{color:'#2a2a2a',fontSize:16,flexShrink:0,alignSelf:'center'}}>{'>'}</div>
                   </div>
                   );
