@@ -8,6 +8,16 @@ function decodeHtmlEntities(str) {
   return txt.value;
 }
 
+function stripHtml(html) {
+  if (!html) return '';
+  try {
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    return doc.body.textContent || '';
+  } catch {
+    return html.replace(/<[^>]+>/g, '');
+  }
+}
+
 function feedFavicon(url) {
   try { return 'https://www.google.com/s2/favicons?domain=' + new URL(url).hostname + '&sz=64'; }
   catch { return ''; }
@@ -704,8 +714,8 @@ function parseRSSXML(xml, feed) {
     const get = sel => item.querySelector(sel)?.textContent?.trim() || '';
     const title = decodeHtmlEntities(get('title'));
     const link = isAtom ? (item.querySelector('link[rel=alternate]')?.getAttribute('href') || item.querySelector('link')?.getAttribute('href') || '') : get('link');
-    const desc = decodeHtmlEntities((get('description') || get('summary')).replace(/<[^>]+>/g,'').trim());
-    const full = (get('content') || '').replace(/<[^>]+>/g,'').trim();
+    const desc = stripHtml(get('description') || get('summary')).trim();
+    const full = stripHtml(get('content') || '').trim();
     return { title, link, description:desc.slice(0,200), fullContent:decodeHtmlEntities(full.length>desc.length?full:''), pubDate:get('pubDate')||get('published')||get('updated')||'', source:feed.name, category:feed.category, feedId:feed.id };
   }).filter(i=>i.title);
 }
