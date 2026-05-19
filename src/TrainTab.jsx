@@ -22,19 +22,26 @@ function addSeenPassage(id) {
     const seen = getSeenPassages();
     if (seen.includes(id)) return;
     seen.push(id);
-    // Keep the last 50 Wikipedia entries but only the last 2 BAKED entries
+    // Only track wiki passages here; baked passages use a timestamp map
     const wiki = seen.filter(s => !s.startsWith('baked:'));
-    const baked = seen.filter(s => s.startsWith('baked:'));
-    localStorage.setItem(SEEN_KEY, JSON.stringify([
-      ...wiki.slice(-SEEN_WIKI_MAX),
-      ...baked.slice(-2),
-    ]));
+    localStorage.setItem(SEEN_KEY, JSON.stringify(wiki.slice(-SEEN_WIKI_MAX)));
   } catch {}
 }
 
+const BAKED_SEEN_KEY = 'speedr_baked_seen';
+function getBakedSeen() {
+  try { return JSON.parse(localStorage.getItem(BAKED_SEEN_KEY) || '{}'); } catch { return {}; }
+}
+function markBakedSeen(id) {
+  try { const m = getBakedSeen(); m[id] = Date.now(); localStorage.setItem(BAKED_SEEN_KEY, JSON.stringify(m)); } catch {}
+}
+function isBakedRecent(id) {
+  const m = getBakedSeen(); const ts = m[id];
+  return ts && Date.now() - ts < 24 * 60 * 60 * 1000;
+}
+
 function randomFallback() {
-  const bakedSeen = getSeenPassages().filter(s => s.startsWith('baked:'));
-  const unseen = FALLBACK_PASSAGES.filter(p => !bakedSeen.includes('baked:' + p.id));
+  const unseen = FALLBACK_PASSAGES.filter(p => !isBakedRecent(p.id));
   const pool = unseen.length ? unseen : FALLBACK_PASSAGES;
   return pool[Math.floor(Math.random() * pool.length)];
 }
@@ -356,7 +363,7 @@ async function generateQuestions(passage) {
 
 const doneBtn = { padding:'12px 16px', border:'1px solid #1a1a1a', borderRadius:12, fontSize:14, fontWeight:300, cursor:'pointer', background:'transparent', color:'#555', whiteSpace:'nowrap', minHeight:44 };
 
-function MiniReader({ text, targetWpm, onFinish, onReadingChange, hashMarksOn = true, orpColor = '#e05252' }) {
+function MiniReader({ text, targetWpm, onFinish, onReadingChange, hashMarksOn = true, orpColor = '#e05252', onSkip }) {
   const words = useMemo(() => text.split(/\s+/).filter(Boolean), [text]);
   const [idx, setIdx] = useState(0);
   const [started, setStarted] = useState(false);
@@ -457,10 +464,23 @@ function MiniReader({ text, targetWpm, onFinish, onReadingChange, hashMarksOn = 
         <span ref={orpRef} style={{flex:'0 0 auto', color:orpColor, fontWeight:600}}>{orp}</span>
         <span style={{flex:'0 0 65%', textAlign:'left', paddingLeft:1}}>{post}</span>
       </div>
-      <div style={{display:'flex', gap:10, opacity: isReading ? 0.12 : 1, transition:'opacity 0.3s ease'}}>
-        <button onClick={()=>{ if (window.confirm('Are you sure? Your progress will be lost.')) finish(); }} style={doneBtn}>Done</button>
-        <button onClick={paused ? begin : ()=>setPaused(true)} style={btnGhost}>{!started ? 'Start Reading' : (paused ? 'Resume' : 'Pause')}</button>
+      <div style={{display:'flex', gap:10, width:'100%', opacity: isReading ? 0.12 : 1, transition:'opacity 0.3s ease'}}>
+        <button onClick={()=>{ if (window.confirm('Are you sure? Your progress will be lost.')) finish(); }} style={{...doneBtn, flex:1}}>Done</button>
+        <button onClick={paused ? begin : ()=>setPaused(true)} style={{...btnGhost, flex:2}}>{!started ? 'Start Reading' : (paused ? 'Resume' : 'Pause')}</button>
       </div>
+      {onSkip && (
+        <button
+          onClick={onSkip}
+          style={{
+            width:'100%', padding:'11px 14px',
+            border:'1px solid #2a2040', borderRadius:12,
+            background:'transparent', color:'#7c6af7',
+            fontSize:13, fontWeight:400, cursor:'pointer',
+          }}
+        >
+          I've seen this passage — skip
+        </button>
+      )}
       <div style={{fontSize:11, color:'#3a3a3a', letterSpacing:1, opacity: isReading ? 0 : 1, transition:'opacity 0.3s ease'}}>{Math.round(targetWpm)} WPM TARGET</div>
     </div>
   );
@@ -585,8 +605,8 @@ export default function TrainTab({ readerWpm }) {
     }
 
     const blank = new Array(final.length).fill(-1);
+    // Only mark wiki passages now; baked are marked on skip or submit
     if (p && p.id && p.id.startsWith('wiki:')) addSeenPassage(p.id);
-    else if (p) addSeenPassage('baked:' + p.id);
     setPassage(p);
     setQuestions(final);
     setAnswers(blank);
@@ -597,7 +617,7 @@ export default function TrainTab({ readerWpm }) {
   const skipArticle = () => {
     if (passage) {
       if (passage.id && passage.id.startsWith('wiki:')) addSeenPassage(passage.id);
-      else addSeenPassage('baked:' + passage.id);
+      else if (passage.id) markBakedSeen(passage.id);
     }
     start();
   };
@@ -639,6 +659,7 @@ export default function TrainTab({ readerWpm }) {
     const xp = computeXp(actualWpm, c);
     setComp(c);
     setXpEarned(xp);
+    if (passage && passage.id && !passage.id.startsWith('wiki:')) markBakedSeen(passage.id);
     const newSession = { wpm: actualWpm, comp: c, target: usedWpm, ts: Date.now() };
     const sessions = [...(state.sessions || []), newSession];
     const last5 = sessions.slice(-5);
@@ -794,8 +815,7 @@ export default function TrainTab({ readerWpm }) {
             </div>
             <input type="range" min={100} max={600} step={10} value={sessionWpm} onChange={e=>setSessionWpm(+e.target.value)} style={{width:'100%', accentColor:'#7c6af7'}}/>
           </div>
-          <MiniReader key={passage.id} text={passage.text} targetWpm={sessionWpm} onFinish={onReaderFinish} onReadingChange={setReading} hashMarksOn={true} orpColor="#e05252"/>
-          <button onClick={skipArticle} style={{...doneBtn, width:'100%', marginTop:12, opacity: reading ? 0 : 1, pointerEvents: reading ? 'none' : 'auto', transition:'opacity 0.3s ease'}}>New Article</button>
+          <MiniReader key={passage.id} text={passage.text} targetWpm={sessionWpm} onFinish={onReaderFinish} onReadingChange={setReading} hashMarksOn={true} orpColor="#e05252" onSkip={skipArticle}/>
         </>
       )}
 

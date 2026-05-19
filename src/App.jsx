@@ -1179,16 +1179,26 @@ export default function App() {
   };
 
   const handleReadArticle = async item => {
-    setActiveArticleUrl(item.link || '');
-    // Save scroll position
     if (newsScrollRef.current) setPrevNewsScroll(newsScrollRef.current.scrollTop);
-    // Add to history
     if (activeText) setHistory(h => [{ title: activeTitle, text: activeText }, ...h.slice(0,9)]);
+
+    // Fast path: fullContent ready — load instantly, no blank screen
+    if (!item.isDigg && !item.isGitHub && item.fullContent?.length > 500) {
+      loadText(decodeHtmlEntities(item.fullContent), item.title);
+      setActiveArticleUrl(item.link || '');
+      saveArticle(item.title, item.fullContent, item.link, item.source);
+      setTab('reader');
+      return;
+    }
+
+    // Async paths: set fetching=true AND switch tab in same synchronous block
+    // so React batches them — reader shows spinner immediately, no blank flash
+    setActiveArticleUrl(item.link || '');
+    setFetching(true);
     setTab('reader');
-    // Digg AI story: resolve the cluster's original source URL, run it through the fetch chain
-    if (item.isDigg) {
-      setFetching(true);
-      try {
+
+    try {
+      if (item.isDigg) {
         const src = await resolveDiggSource(item.link);
         if (src) {
           const text = await fetchText(src).catch(() => '');
@@ -1196,30 +1206,23 @@ export default function App() {
         }
         loadText(((item.title||'') + '\n\n' + (item.description||'')).trim() || (item.title||'Digg story'), item.title || 'Digg story');
         setActiveArticleUrl(src || item.link || '');
-      } finally { setFetching(false); }
-      return;
-    }
-    // GitHub trending: open the repo page through the fetch chain
-    if (item.isGitHub) {
-      const repoUrl = item.link || ('https://github.com/' + (item.repo || ''));
-      setActiveArticleUrl(repoUrl);
-      setFetching(true);
-      try {
+        return;
+      }
+      if (item.isGitHub) {
+        const repoUrl = item.link || ('https://github.com/' + (item.repo || ''));
+        setActiveArticleUrl(repoUrl);
         const text = await fetchText(repoUrl).catch(() => '');
         if (text && wordCount(text) >= 100) { loadText(decodeHtmlEntities(text), item.title || item.repo); saveArticle(item.title || item.repo, text, repoUrl, 'GitHub'); return; }
         loadText(((item.repo||'') + '\n\n' + (item.title||'') + (item.description ? '\n\n' + item.description : '')).trim() || (item.repo||'GitHub repo'), item.repo || item.title || 'GitHub repo');
-      } finally { setFetching(false); }
-      return;
-    }
-    if (item.fullContent?.length > 500) { loadText(decodeHtmlEntities(item.fullContent), item.title); saveArticle(item.title, item.fullContent, item.link, item.source); return; }
-    setFetching(true);
-    try {
-      const text = await fetchText(item.link);
-      const ft = text.length > 200 ? text : (item.fullContent || item.title + '. ' + item.description);
-      loadText(decodeHtmlEntities(ft), item.title);
-      saveArticle(item.title, ft, item.link, item.source);
-    } catch { loadText(decodeHtmlEntities(item.fullContent || item.description || item.title), item.title); }
-    finally { setFetching(false); }
+        return;
+      }
+      try {
+        const text = await fetchText(item.link);
+        const ft = text.length > 200 ? text : (item.fullContent || item.title + '. ' + item.description);
+        loadText(decodeHtmlEntities(ft), item.title);
+        saveArticle(item.title, ft, item.link, item.source);
+      } catch { loadText(decodeHtmlEntities(item.fullContent || item.description || item.title), item.title); }
+    } finally { setFetching(false); }
   };
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2000); };
