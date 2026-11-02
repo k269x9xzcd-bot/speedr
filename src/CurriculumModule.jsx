@@ -98,6 +98,34 @@ async function loadMeta(force) {
 }
 
 // ---------- MDX → sections of plain text ----------
+const MATHY = /[=~≈≥≤<>σμαβγδεθλρΣ∑∫√∂^]|_\{|\b(exp|log|ln|Var|Cov|E)\(|\bE\[/;
+// A bare line like "dX(t) = theta * (mu - X(t)) * dt + sigma * dW(t)" — formula, not prose
+function isFormulaLine(t) {
+  t = t.replace(/^\*\*|\*\*$/g, '').trim();
+  if (!/=/.test(t) || t.length > 180 || /^[-*+>|#]/.test(t) || /\.$/.test(t)) return false;
+  if (!/[*()^_\[\]σμαβλΣ√/]/.test(t)) return false;
+  const words = t.match(/\b[a-z]{4,}\b/g) || [];
+  return words.filter(w => !/^(theta|sigma|alpha|beta|gamma|delta|lambda|epsilon|kappa|sqrt|price|cost|flow|order|quantity|imbalance|portfolio|return|rate|time|sum|mean|var)$/i.test(w)).length <= 3;
+}
+function extractFormulas(md) {
+  const out = [];
+  let inCode = false, buf = [];
+  for (const line of md.split('\n')) {
+    if (line.trim().startsWith('```')) { if (inCode && buf.join('').trim()) out.push({ code: buf.join('\n'), block: true }); inCode = !inCode; buf = []; continue; }
+    if (inCode) { buf.push(line); continue; }
+    if (isFormulaLine(line.trim())) { out.push({ code: line.trim().replace(/^\*\*|\*\*$/g, '').replace(/`/g, '') }); continue; }
+    for (const m of line.matchAll(/`([^`]+)`/g)) if (m[1].length > 2 && MATHY.test(m[1])) out.push({ code: m[1] });
+    for (const m of line.matchAll(/\*\*([^*`]+=[^*`]+)\*\*/g)) if (MATHY.test(m[1]) && /[*()_^]/.test(m[1])) out.push({ code: m[1].trim() });
+  }
+  return out;
+}
+// Deep link to a section via a text fragment (Safari 16.1+, Chrome) — the site has no heading ids
+function sectionUrl(slug, title) {
+  const base = `${SITE}/read/${slug}`;
+  if (!title || title === 'Introduction') return base;
+  return `${base}#:~:text=${encodeURIComponent(title).replace(/-/g, '%2D')}`;
+}
+
 function mdInline(s) {
   return s
     .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
@@ -144,6 +172,8 @@ function parseDoc(md) {
   for (const s of sections) {
     s.text = mdToText(s.md);
     s.words = s.text ? s.text.split(/\s+/).filter(Boolean).length : 0;
+    s.formulas = extractFormulas(s.md);
+    s.hasTable = /^\s*\|.*\|\s*$/m.test(s.md);
     s.kind = /key takeaways/i.test(s.title) ? 'takeaways' : /further reading/i.test(s.title) ? 'further' : 'body';
     if (s.kind === 'takeaways') s.bullets = s.md.split('\n').filter(l => /^\s*[-*]\s/.test(l)).map(l => mdInline(l.replace(/^\s*[-*]\s+/, '')));
     if (s.kind === 'further') {
@@ -178,6 +208,63 @@ async function fetchQuiz(text) {
   const d = await r.json();
   if (!Array.isArray(d?.questions)) throw new Error('quiz');
   return d.questions;
+}
+
+// ---------- source renderer: original markdown, formulas/tables intact ----------
+const mono = "'JetBrains Mono',monospace";
+function Inline({ t }) {
+  const parts = []; let rest = t, k = 0;
+  const re = /`([^`]+)`|\*\*(.+?)\*\*|\*([^*\n]+)\*|\[([^\]]+)\]\(([^)]+)\)/;
+  while (rest) {
+    const m = rest.match(re);
+    if (!m) { parts.push(rest.replace(/ -- /g, ' — ')); break; }
+    if (m.index) parts.push(rest.slice(0, m.index).replace(/ -- /g, ' — '));
+    if (m[1] != null) parts.push(<code key={k++} style={{ fontFamily: mono, fontSize: '0.88em', background: '#16142a', color: '#c9c0ff', padding: '1px 5px', borderRadius: 5, wordBreak: 'break-word' }}>{m[1]}</code>);
+    else if (m[2] != null) parts.push(<strong key={k++} style={{ color: '#e8e8e8', fontWeight: 500 }}><Inline t={m[2]} /></strong>);
+    else if (m[3] != null) parts.push(<em key={k++}>{m[3]}</em>);
+    else { const href = m[5].startsWith('/') ? SITE + m[5] : m[5]; parts.push(<a key={k++} href={href} target="_blank" rel="noreferrer" style={{ color: C.acc2 }}>{m[4]}</a>); }
+    rest = rest.slice(m.index + m[0].length);
+  }
+  return <>{parts}</>;
+}
+function MdView({ md }) {
+  const lines = md.split('\n'), out = []; let i = 0, k = 0;
+  const P = { fontSize: 14, color: '#b8b8b8', lineHeight: 1.65, margin: '0 0 10px' };
+  while (i < lines.length) {
+    const l = lines[i], t = l.trim();
+    if (!t || /^-{3,}$/.test(t) || /living document/i.test(t)) { i++; continue; }
+    if (t.startsWith('```')) {
+      const buf = []; i++;
+      while (i < lines.length && !lines[i].trim().startsWith('```')) buf.push(lines[i++]);
+      i++;
+      out.push(<pre key={k++} style={{ fontFamily: mono, fontSize: 12, color: '#c9c0ff', background: '#0b0a14', border: '1px solid #2a2040', borderRadius: 10, padding: 12, overflowX: 'auto', margin: '0 0 10px' }}>{buf.join('\n')}</pre>);
+      continue;
+    }
+    if (t.startsWith('|')) {
+      const rows = [];
+      while (i < lines.length && lines[i].trim().startsWith('|')) { const r = lines[i++].trim(); if (!/^\|?[\s:-]+\|[\s|:-]*$/.test(r)) rows.push(r.replace(/^\||\|$/g, '').split('|').map(c => c.trim())); }
+      out.push(<div key={k++} style={{ overflowX: 'auto', margin: '0 0 12px' }}><table style={{ borderCollapse: 'collapse', fontSize: 12, color: '#b8b8b8', minWidth: '100%' }}><tbody>
+        {rows.map((r, ri) => <tr key={ri}>{r.map((c, ci) => <td key={ci} style={{ border: '1px solid #222', padding: '6px 8px', background: ri === 0 ? '#151515' : 'transparent', color: ri === 0 ? '#ddd' : undefined, verticalAlign: 'top' }}><Inline t={c} /></td>)}</tr>)}
+      </tbody></table></div>);
+      continue;
+    }
+    if (isFormulaLine(t)) { out.push(<div key={k++} style={{ fontFamily: mono, fontSize: 12.5, color: '#c9c0ff', background: '#0b0a14', border: '1px solid #2a2040', borderRadius: 10, padding: '9px 12px', margin: '0 0 10px', overflowX: 'auto', whiteSpace: 'nowrap' }}>{t.replace(/^\*\*|\*\*$/g, '').replace(/`/g, '')}</div>); i++; continue; }
+    const h = t.match(/^(#{2,6})\s+(.*)/);
+    if (h) { out.push(<div key={k++} style={{ fontSize: 14, color: '#e8e8e8', fontWeight: 500, margin: '14px 0 8px' }}><Inline t={h[2]} /></div>); i++; continue; }
+    if (/^([-*+]|\d+\.)\s/.test(t)) {
+      const ordered = /^\d+\./.test(t), items = [];
+      while (i < lines.length && /^\s*([-*+]|\d+\.)\s/.test(lines[i])) items.push(lines[i++].trim().replace(/^([-*+]|\d+\.)\s+/, ''));
+      const L = ordered ? 'ol' : 'ul';
+      out.push(<L key={k++} style={{ ...P, paddingLeft: 20 }}>{items.map((x, xi) => <li key={xi} style={{ marginBottom: 4 }}><Inline t={x} /></li>)}</L>);
+      continue;
+    }
+    if (t.startsWith('>')) { out.push(<div key={k++} style={{ ...P, borderLeft: `2px solid ${C.acc}`, paddingLeft: 10, fontStyle: 'italic' }}><Inline t={t.replace(/^>\s?/, '')} /></div>); i++; continue; }
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !/^(\||#|```|>|[-*+]\s|\d+\.\s)/.test(lines[i].trim()) && !(para.length && isFormulaLine(lines[i].trim()))) para.push(lines[i++].trim());
+    if (!para.length) { i++; continue; }
+    out.push(<p key={k++} style={P}><Inline t={para.join(' ')} /></p>);
+  }
+  return <div>{out}</div>;
 }
 
 // ---------- UI ----------
@@ -245,7 +332,8 @@ export default function CurriculumModule({ onRead, wpm, progressTick }) {
   const [docErr, setDocErr] = useState('');
   const [search, setSearch] = useState('');
   const [progress, setProgress] = useState(getWlProgress);
-  const [quizSec, setQuizSec] = useState(null);
+  const [panel, setPanel] = useState(null); // {i, kind:'quiz'|'src'}
+  const [showFx, setShowFx] = useState(false);
 
   useEffect(() => { setProgress(getWlProgress()); }, [progressTick]);
   const init = useCallback((force) => { setErr(''); loadMeta(force).then(setMeta).catch(() => setErr('Could not load the curriculum.')); }, []);
@@ -259,13 +347,13 @@ export default function CurriculumModule({ onRead, wpm, progressTick }) {
   const doneCount = (list) => list.filter(i => isDone(i.slug)).length;
   const nextUp = items.find(i => !isDone(i.slug));
 
-  const go = (v) => { setStack(s => [...s, view]); setView(v); setQuizSec(null); window.scrollTo?.(0, 0); };
-  const back = () => { const n = [...stack]; const v = n.pop(); setStack(n); setView(v || { name: 'home' }); setQuizSec(null); };
+  const go = (v) => { setStack(s => [...s, view]); setView(v); setPanel(null); setShowFx(false); window.scrollTo?.(0, 0); };
+  const back = () => { const n = [...stack]; const v = n.pop(); setStack(n); setView(v || { name: 'home' }); setPanel(null); setShowFx(false); };
   const openItem = (slug) => bySlug[slug] && go({ name: 'item', slug });
 
   useEffect(() => {
     if (view.name !== 'item') return;
-    setDoc(null); setDocErr('');
+    setDoc(null); setDocErr(''); setPanel(null); setShowFx(false);
     loadDoc(bySlug[view.slug]).then(setDoc).catch(() => setDocErr('Could not load this reading.'));
   }, [view, bySlug]);
 
@@ -277,7 +365,8 @@ export default function CurriculumModule({ onRead, wpm, progressTick }) {
     return [];
   }, [meta, mode, items]);
 
-  const read = (item, sec, text, title) => onRead({ slug: item.slug, sec, sectionCount: doc?.sections.length || 0, text, title, url: `${SITE}/read/${item.slug}` });
+  const read = (item, sec, text, title) => onRead({ slug: item.slug, sec, sectionCount: doc?.sections.length || 0, text, title, url: sec === 'all' ? `${SITE}/read/${item.slug}` : sectionUrl(item.slug, doc?.sections[sec]?.title) });
+  const toggle = (i, kind) => setPanel(p => p && p.i === i && p.kind === kind ? null : { i, kind });
 
   if (err) return (
     <div style={{ padding: 40, textAlign: 'center' }}>
@@ -339,6 +428,25 @@ export default function CurriculumModule({ onRead, wpm, progressTick }) {
             </button>
           </div>
 
+          {doc.sections.some(s => s.formulas.length) && <>
+            <div onClick={() => setShowFx(v => !v)} style={{ ...card, padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', background: '#0f0e1a', borderColor: '#2a2040' }}>
+              <div style={{ fontFamily: mono, color: C.acc2, fontSize: 16 }}>ƒ</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, color: '#e0dcff' }}>Formula sheet</div>
+                <div style={{ fontSize: 11, color: '#6a6090', marginTop: 3 }}>{doc.sections.reduce((a, s) => a + s.formulas.length, 0)} formulas — keep open while you speed read</div>
+              </div>
+              <div style={{ color: '#4a4060', fontSize: 16 }}>{showFx ? '▾' : '›'}</div>
+            </div>
+            {showFx && <div style={{ ...card, padding: '6px 14px' }}>
+              {doc.sections.map((s, i) => s.formulas.length ? (
+                <div key={i} style={{ padding: '10px 0', borderBottom: '1px solid #161616' }}>
+                  <div onClick={() => toggle(i, 'src')} style={{ fontSize: 11, color: C.dim, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, cursor: 'pointer' }}>{s.title} ›</div>
+                  {s.formulas.map((f, j) => <div key={j} style={{ fontFamily: mono, fontSize: 12, color: '#c9c0ff', background: '#0b0a14', border: '1px solid #1e1a33', borderRadius: 8, padding: '7px 10px', marginBottom: 6, whiteSpace: f.block ? 'pre' : 'normal', overflowX: 'auto', wordBreak: 'break-word' }}>{f.code}</div>)}
+                </div>
+              ) : null)}
+            </div>}
+          </>}
+
           <div style={label}>Sections · {doc.words.toLocaleString()} words</div>
           <div style={card}>
             {doc.sections.map((s, i, arr) => (
@@ -351,9 +459,18 @@ export default function CurriculumModule({ onRead, wpm, progressTick }) {
                       <div style={{ fontSize: 11, color: C.dim, marginTop: 3 }}>{s.words} words · {mins(s.words, wpm)} min</div>
                     </div>
                   </div>
-                  <button onClick={() => setQuizSec(q => q === i ? null : i)} style={{ background: 'none', border: `1px solid ${quizSec === i ? C.acc : C.bd}`, color: quizSec === i ? C.acc2 : '#555', borderRadius: 10, fontSize: 11, padding: '6px 10px', cursor: 'pointer' }}>Quiz</button>
+                  {[['src', s.formulas.length ? `ƒ ${s.formulas.length}` : s.hasTable ? '▦ Src' : 'Src'], ['quiz', 'Quiz']].map(([kind, lbl]) => {
+                    const on = panel?.i === i && panel.kind === kind, hot = kind === 'src' && (s.formulas.length || s.hasTable);
+                    return <button key={kind} onClick={() => toggle(i, kind)} style={{ background: 'none', border: `1px solid ${on ? C.acc : hot ? '#2a2040' : C.bd}`, color: on || hot ? C.acc2 : '#555', borderRadius: 10, fontSize: 11, padding: '6px 9px', marginLeft: 4, cursor: 'pointer', fontFamily: kind === 'src' && s.formulas.length ? mono : 'inherit' }}>{lbl}</button>;
+                  })}
                 </div>
-                {quizSec === i && <div style={{ padding: '0 12px 12px' }}><Quiz key={item.slug + i} text={s.text} quizKey={`${item.slug}#${i}`} /></div>}
+                {panel?.i === i && panel.kind === 'quiz' && <div style={{ padding: '0 12px 12px' }}><Quiz key={item.slug + i} text={s.text} quizKey={`${item.slug}#${i}`} /></div>}
+                {panel?.i === i && panel.kind === 'src' && (
+                  <div style={{ padding: '4px 16px 14px', borderTop: '1px solid #161616', background: '#0c0c0c' }}>
+                    <MdView md={s.md} />
+                    <a href={sectionUrl(item.slug, s.title)} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: C.acc2, textDecoration: 'none' }}>Open this section on wyandanchlibrary.com ↗</a>
+                  </div>
+                )}
               </div>
             ))}
           </div>
