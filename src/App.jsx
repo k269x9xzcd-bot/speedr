@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import TrainTab from './TrainTab';
+import CurriculumModule, { markWlProgress } from './CurriculumModule';
 
 function decodeHtmlEntities(str) {
   if (!str) return str;
@@ -976,6 +977,9 @@ export default function App() {
   const [libLoading, setLibLoading] = useState(false);
   const [libSearch, setLibSearch] = useState('');
   const [toast, setToast] = useState('');
+  const [libView, setLibView] = useState(() => localStorage.getItem('speedr_lib_view') || 'saved');
+  const [wlTick, setWlTick] = useState(0);
+  const wlSession = useRef(null); // {slug, sec, sectionCount, title} when reader text came from the curriculum
 
   // Settings
   const [wpm, setWpm] = useSetting('wpm');
@@ -1082,6 +1086,18 @@ export default function App() {
     loadText(article.text, article.title);
     setTab('reader');
   };
+
+  useEffect(() => { try { localStorage.setItem('speedr_lib_view', libView); } catch {} }, [libView]);
+  const openCurriculum = useCallback(({ slug, sec, sectionCount, text, title, url }) => {
+    wlSession.current = { slug, sec, sectionCount, title };
+    setTab('reader'); loadText(text, title); setActiveArticleUrl(url);
+  }, [loadText]);
+  useEffect(() => {
+    const w = wlSession.current;
+    if (!done || !w || w.title !== activeTitle) return;
+    markWlProgress(w.slug, w.sec, w.sectionCount); wlSession.current = null; setWlTick(t => t + 1);
+    setToast('Progress saved'); setTimeout(() => setToast(''), 1800);
+  }, [done]);
 
   useEffect(() => {
     if (activeText) { setChunks(tokenize(activeText, chunkSize)); setIdx(0); setPlaying(false); setDone(false); }
@@ -1657,6 +1673,12 @@ export default function App() {
           {/* -- SETTINGS -- */}
           {tab==='library' && (
             <div key="library" className="slide-up" style={{paddingBottom:12}}>
+              <div style={{display:'flex',gap:4,padding:4,background:'#0a0a0a',border:'1px solid #1a1a1a',borderRadius:12,marginBottom:12}}>
+                {[['saved','Saved'],['curriculum','Curriculum']].map(([id,l]) => (
+                  <button key={id} onClick={()=>setLibView(id)} style={{flex:1,padding:'9px 0',border:'none',borderRadius:9,fontSize:13,cursor:'pointer',background:libView===id?'#7c6af7':'transparent',color:libView===id?'#fff':'#777'}}>{l}</button>
+                ))}
+              </div>
+              {libView==='curriculum' ? <CurriculumModule onRead={openCurriculum} wpm={wpm} progressTick={wlTick}/> : <>
               <input
                 style={{...field,marginBottom:12}}
                 placeholder="Search saved articles..."
@@ -1704,6 +1726,7 @@ export default function App() {
                   {libLoading ? 'Syncing...' : 'Sync with cloud'}
                 </button>
               )}
+              </>}
             </div>
           )}
 
