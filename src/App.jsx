@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import TrainTab from './TrainTab';
-import CurriculumModule, { markWlProgress } from './CurriculumModule';
+import LearnTab from './learn/LearnTab';
+import { LessonHeader, LessonEnd, LessonSheets } from './learn/LessonPlayer';
+import { loadLessonDoc, markPart, touchLesson, resumePart, sourceUrl, getStore } from './learn/courses.js';
 
 function decodeHtmlEntities(str) {
   if (!str) return str;
@@ -977,9 +979,10 @@ export default function App() {
   const [libLoading, setLibLoading] = useState(false);
   const [libSearch, setLibSearch] = useState('');
   const [toast, setToast] = useState('');
-  const [libView, setLibView] = useState(() => localStorage.getItem('speedr_lib_view') || 'saved');
-  const [wlTick, setWlTick] = useState(0);
-  const wlSession = useRef(null); // {slug, sec, sectionCount, title} when reader text came from the curriculum
+  // Learn tab: active lesson session in the reader, and which course page the tab shows
+  const [learn, setLearn] = useState(null); // {course, lesson, doc, part, title}
+  const [learnView, setLearnView] = useState(null); // null = course list | {courseId, lessonId?}
+  const [learnSheet, setLearnSheet] = useState(null); // 'quiz' | 'notes' | 'formulas'
 
   // Settings
   const [wpm, setWpm] = useSetting('wpm');
@@ -1087,17 +1090,33 @@ export default function App() {
     setTab('reader');
   };
 
-  useEffect(() => { try { localStorage.setItem('speedr_lib_view', libView); } catch {} }, [libView]);
-  const openCurriculum = useCallback(({ slug, sec, sectionCount, text, title, url }) => {
-    wlSession.current = { slug, sec, sectionCount, title };
-    setTab('reader'); loadText(text, title); setActiveArticleUrl(url);
+  // ---- Learn: lesson session ----
+  // A session is "live" only while the reader still shows its text; loading anything else ends it.
+  const learnLive = !!learn && learn.title === activeTitle;
+  const goPart = useCallback((course, lesson, doc, part) => {
+    const p = doc.parts[part];
+    const title = `${lesson.title} — ${p.title}`;
+    setLearn({ course, lesson, doc, part, title });
+    loadText(`${p.title}.\n\n${p.text}`, title);
+    setActiveArticleUrl(sourceUrl(course, lesson, p.title) || '');
+    touchLesson(course.id, lesson.id, part);
   }, [loadText]);
+  const startLesson = useCallback(async (course, lesson, part, doc) => {
+    // batch tab switch + loading state before any await (avoids blank-screen flash)
+    setTab('reader'); setLearnSheet(null);
+    if (!doc) setFetching(true);
+    try {
+      const d = doc || await loadLessonDoc(course, lesson);
+      if (!d.parts.length) throw new Error('This lesson has no readable text');
+      goPart(course, lesson, d, part ?? resumePart(getStore(), course.id, lesson.id, d.parts.length));
+    } catch (e) {
+      showToast(e.message || 'Could not load lesson'); setTab('learn');
+    } finally { setFetching(false); }
+  }, [goPart]);
   useEffect(() => {
-    const w = wlSession.current;
-    if (!done || !w || w.title !== activeTitle) return;
-    markWlProgress(w.slug, w.sec, w.sectionCount); wlSession.current = null; setWlTick(t => t + 1);
-    setToast('Progress saved'); setTimeout(() => setToast(''), 1800);
+    if (done && learnLive) markPart(learn.course.id, learn.lesson.id, learn.part, learn.doc.parts.length);
   }, [done]);
+  const backToCourse = () => { setLearnSheet(null); setPlaying(false); setIsFocused(false); if (learn) setLearnView({ courseId: learn.course.id }); setTab('learn'); };
 
   useEffect(() => {
     if (activeText) { setChunks(tokenize(activeText, chunkSize)); setIdx(0); setPlaying(false); setDone(false); }
@@ -1360,7 +1379,7 @@ export default function App() {
   const currentChunk = chunks[Math.min(idx,chunks.length-1)] || [];
   const visibleItems = category==='All' ? feedItems : feedItems.filter(i=>i.category===category);
   const uiFading = isFocused && !landscape;
-  const articleTruncated = tab==='reader' && !!activeText && !!activeArticleUrl && (totalWords < 200 || PAYWALL_PHRASES.some(p => activeText.toLowerCase().includes(p)));
+  const articleTruncated = tab==='reader' && !learnLive && !!activeText && !!activeArticleUrl && (totalWords < 200 || PAYWALL_PHRASES.some(p => activeText.toLowerCase().includes(p)));
 
   // Keep the status-bar / theme color pure black, and go full black behind the app while focused
   useEffect(() => {
@@ -1455,8 +1474,15 @@ export default function App() {
           {tab==='reader' && (
             <div key="reader" className="slide-up" style={{display:'flex',flexDirection:'column',flex:1,gap:10,paddingBottom:12}}>
 
+              {learnLive && (
+                <LessonHeader session={learn} className={`ui-layer ls-hide${uiFading?' ui-faded':''}`}
+                  onCourse={backToCourse}
+                  onExit={()=>{ setLearn(null); setLearnSheet(null); setPlaying(false); setIsFocused(false); }}
+                  onNotes={()=>{ setPlaying(false); setIsFocused(false); setLearnSheet('notes'); }}
+                  onJump={i=>{ setPlaying(false); setIsFocused(false); goPart(learn.course, learn.lesson, learn.doc, i); }}/>
+              )}
               {/* Input card - fades while playing */}
-              <div className={`ui-layer ls-hide${uiFading?' ui-faded':''}`} style={card}>
+              {!learnLive && <div className={`ui-layer ls-hide${uiFading?' ui-faded':''}`} style={card}>
                 <div style={{display:'flex',borderBottom:'1px solid #141414'}}>
                   {['Paste','URL'].map(t => (
                     <button key={t} style={{flex:1,padding:'12px 0',border:'none',background:'transparent',color:inputTab===t?'#8b7fff':'#555',fontSize:13,fontWeight:inputTab===t?500:300,cursor:'pointer',borderBottom:inputTab===t?'2px solid #8b7fff':'2px solid transparent',letterSpacing:0.3}} onClick={()=>setInputTab(t)}>{t}</button>
@@ -1479,7 +1505,7 @@ export default function App() {
                     {fetching && <div style={{color:'#555',fontSize:12,marginTop:8,animation:'pulse 1.4s infinite'}}>Extracting article...</div>}
                   </>}
                 </div>
-              </div>
+              </div>}
 
               {/* READER STAGE - fills available space */}
               <div
@@ -1522,6 +1548,12 @@ export default function App() {
                       <div style={{color:'#2a2a2a',fontSize:15,marginBottom:6}}>load text above</div>
                       <div style={{color:'#1a1a1a',fontSize:11}}>or tap news to browse articles</div>
                     </div>
+                  ) : done && learnLive ? (
+                    <LessonEnd session={learn}
+                      onNext={()=>goPart(learn.course, learn.lesson, learn.doc, learn.part + 1)}
+                      onReread={()=>{ setIdx(0); setDone(false); }}
+                      onQuiz={()=>setLearnSheet('quiz')}
+                      onCourse={backToCourse}/>
                   ) : done ? (
                     <div style={{textAlign:'center',display:'flex',flexDirection:'column',gap:16,alignItems:'center'}}>
                       <div style={{color:'#50d89a',fontSize:18,fontWeight:400}}>finished</div>
@@ -1555,7 +1587,7 @@ export default function App() {
                 <span>{totalWords.toLocaleString()}w</span>
                 <span>{minsLeft}m</span>
                 <span>{Math.round(progress)}%</span>
-                {activeText&&<button onClick={()=>saveArticle(activeTitle,activeText,urlInput,'')} style={{padding:'3px 10px',border:'1px solid #2a2a4a',borderRadius:10,background:'transparent',color:'#8b7fff',fontSize:11,cursor:'pointer'}}>Save</button>}
+                {activeText&&!learnLive&&<button onClick={()=>saveArticle(activeTitle,activeText,urlInput,'')} style={{padding:'3px 10px',border:'1px solid #2a2a4a',borderRadius:10,background:'transparent',color:'#8b7fff',fontSize:11,cursor:'pointer'}}>Save</button>}
                 {activeText&&<button onClick={()=>{navigator.clipboard?.writeText(activeText);showToast('Copied!');}} style={{padding:'3px 10px',border:'1px solid #1a1a1a',borderRadius:10,background:'transparent',color:'#555',fontSize:11,cursor:'pointer'}}>Copy</button>}
                 {activeArticleUrl&&<a href={activeArticleUrl} target='_blank' rel='noreferrer' style={{padding:'3px 10px',border:'1px solid #1a1a1a',borderRadius:10,color:'#555',fontSize:11,cursor:'pointer',textDecoration:'none'}}>Link</a>}
               </div>
@@ -1673,12 +1705,6 @@ export default function App() {
           {/* -- SETTINGS -- */}
           {tab==='library' && (
             <div key="library" className="slide-up" style={{paddingBottom:12}}>
-              <div style={{display:'flex',gap:4,padding:4,background:'#0a0a0a',border:'1px solid #1a1a1a',borderRadius:12,marginBottom:12}}>
-                {[['saved','Saved'],['curriculum','Curriculum']].map(([id,l]) => (
-                  <button key={id} onClick={()=>setLibView(id)} style={{flex:1,padding:'9px 0',border:'none',borderRadius:9,fontSize:13,cursor:'pointer',background:libView===id?'#7c6af7':'transparent',color:libView===id?'#fff':'#777'}}>{l}</button>
-                ))}
-              </div>
-              {libView==='curriculum' ? <CurriculumModule onRead={openCurriculum} wpm={wpm} progressTick={wlTick}/> : <>
               <input
                 style={{...field,marginBottom:12}}
                 placeholder="Search saved articles..."
@@ -1726,9 +1752,10 @@ export default function App() {
                   {libLoading ? 'Syncing...' : 'Sync with cloud'}
                 </button>
               )}
-              </>}
             </div>
           )}
+
+          {tab==='learn' && <div key="learn" className="slide-up"><LearnTab wpm={wpm} view={learnView} setView={setLearnView} session={learnLive ? learn : null} onResume={()=>setTab('reader')} onStartLesson={startLesson}/></div>}
 
           {tab==='train' && <div className="slide-up" style={{paddingBottom:12}}><TrainTab readerWpm={wpm}/></div>}
 
@@ -1827,7 +1854,7 @@ export default function App() {
 
         {/* BOTTOM TAB BAR */}
         <div className="ls-hide ui-layer" style={{flexShrink:0,display:'flex',borderTop:'1px solid #141414',background:'#0d0d0d',paddingBottom:'env(safe-area-inset-bottom)',minHeight:58,zIndex:10,opacity:uiFading?0.07:1,transition:'opacity 0.25s ease',pointerEvents:'auto'}}>
-          {[['reader','R','Reader'],['news','N','News'],['library','B','Library'],['train','\u26a1','Train'],['settings','\u2699','Settings']].map(([id,icon,label]) => (
+          {[['reader','R','Reader'],['news','N','News'],['library','B','Library'],['learn','L','Learn'],['train','\u26a1','Train'],['settings','\u2699','Settings']].map(([id,icon,label]) => (
             <button key={id} onClick={()=>setTab(id)} style={{flex:1,padding:'10px 0 8px',border:'none',background:'transparent',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,WebkitTapHighlightColor:'transparent'}}>
               <span style={{fontSize:(id==='settings'||id==='train')?20:19,fontFamily:(id==='settings'||id==='train')?'inherit':"'JetBrains Mono',monospace",fontWeight:(id==='settings'||id==='train')?400:500,color:tab===id?'#8b7fff':'#3a3a3a',transition:'color 0.15s'}}>{icon}</span>
               <span style={{fontSize:10,fontWeight:400,letterSpacing:0.5,color:tab===id?'#8b7fff':'#3a3a3a',transition:'color 0.15s'}}>{label}</span>
@@ -1863,6 +1890,10 @@ export default function App() {
           tap to show controls
         </div>
       )}
+      {learnLive && <LessonSheets session={learn} sheet={learnSheet} setSheet={setLearnSheet}
+        onStartPart={i=>goPart(learn.course, learn.lesson, learn.doc, i)}
+        onNextLesson={l=>startLesson(learn.course, l, 0)}
+        onCourse={backToCourse}/>}
       {toast && (
         <div style={{position:'fixed',bottom:80,left:'50%',transform:'translateX(-50%)',background:'#7c6af7',color:'#fff',padding:'9px 22px',borderRadius:20,fontSize:13,fontWeight:500,zIndex:300,whiteSpace:'nowrap',pointerEvents:'none',boxShadow:'0 4px 16px rgba(124,106,247,0.4)'}}>
           {toast}
