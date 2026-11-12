@@ -5,6 +5,7 @@ import {
   recordQuiz, resetLesson, quizText, sourceUrl, linkBase,
 } from './courses.js';
 import { MdView } from './md.jsx';
+import { nightState, KIND_LABEL, NIGHTS } from './bradbury.js';
 import { C, mono, card, label, pill, pillOn, chip, btnP, btnG, field, mins, Bar, StatusDot, Sheet, Quiz, FormulaSheet } from './ui.jsx';
 
 function useStore() {
@@ -12,7 +13,7 @@ function useStore() {
   useEffect(() => { const f = () => set(getStore()); window.addEventListener('learn-store', f); return () => window.removeEventListener('learn-store', f); }, []);
   return s;
 }
-const SRC_LABEL = { wyandanch: 'Library', github: 'GitHub', ai: 'AI course' };
+const SRC_LABEL = { wyandanch: 'Library', github: 'GitHub', ai: 'AI course', bradbury: 'Reading program' };
 
 // ---------------------------------------------------------------------
 // Lesson sheet: overview, parts, quiz, formulas, source — all in one place
@@ -172,6 +173,52 @@ function NewCourseSheet({ onClose, onCreated }) {
 }
 
 // ---------------------------------------------------------------------
+// 1,000 Nights: tonight's poem, story and essay, front and centre
+// ---------------------------------------------------------------------
+function NightsCard({ course, store, wpm, onStartLesson, onOpen }) {
+  const st = nightState(store, course);
+  const cur = st.current;
+  const head = { fontSize: 10, color: '#6a5fb0', letterSpacing: 1.5, textTransform: 'uppercase' };
+  if (!cur) return (
+    <div style={{ ...card, padding: 18, background: '#0f0e1a', borderColor: '#2a2040', textAlign: 'center' }}>
+      <div style={head}>1,000 Nights</div>
+      <div style={{ fontSize: 18, color: '#ece8ff', margin: '8px 0 4px' }}>All {NIGHTS.toLocaleString()} nights read.</div>
+      <div style={{ fontSize: 13, color: '#6a6090' }}>You're full of stuff.</div>
+    </div>
+  );
+  return (
+    <div style={{ ...card, background: '#0f0e1a', borderColor: '#2a2040' }}>
+      <div style={{ padding: '16px 16px 6px', display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <div style={{ ...head, flex: 1 }}>1,000 Nights · Night {cur.n}</div>
+        {st.streak > 0 && <div style={{ fontSize: 11, color: '#e0a052', fontFamily: mono }}>{st.streak}-night streak</div>}
+      </div>
+      <div style={{ padding: '0 16px 10px', fontSize: 18, color: '#ece8ff' }}>{st.doneToday ? 'Done for today — read ahead?' : "Tonight's reading"}</div>
+      {cur.unit.lessons.map(l => {
+        const status = lessonStatus(store, course.id, l);
+        return (
+          <div key={l.id} onClick={() => onStartLesson(course, l)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 16px', borderTop: '1px solid #1a1830', cursor: 'pointer' }}>
+            <StatusDot status={status} size={20} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 10, color: '#6a5fb0', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 2 }}>{KIND_LABEL[l.kind]}{status === 'quiz' ? ' · quiz to finish' : ''}</div>
+              <div style={{ fontSize: 14, color: status === 'done' ? '#8a8a8a' : C.txt, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.title}</div>
+              <div style={{ fontSize: 11, color: C.dim, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.subtitle.split(' · ').slice(1).join(' · ')} · {mins(l.words, wpm)} min</div>
+            </div>
+            <div style={{ color: '#4a3f8a', fontSize: 14 }}>›</div>
+          </div>
+        );
+      })}
+      <div style={{ padding: '12px 16px 14px', borderTop: '1px solid #1a1830' }}>
+        <Bar v={st.completed / NIGHTS} />
+        <div style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
+          <div style={{ flex: 1, fontSize: 11, color: '#6a6090' }}>{st.completed} of {NIGHTS.toLocaleString()} nights</div>
+          <div onClick={onOpen} style={{ fontSize: 12, color: C.acc2, cursor: 'pointer' }}>All nights ›</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
 // Course page: Continue + units accordion. Lessons open as a sheet.
 // ---------------------------------------------------------------------
 function CoursePage({ course, store, wpm, onBack, onStartLesson, openLessonId, clearOpenLesson }) {
@@ -186,6 +233,11 @@ function CoursePage({ course, store, wpm, onBack, onStartLesson, openLessonId, c
     clearOpenLesson?.();
   }, [openLessonId]);
   const { done, total } = courseCounts(store, course);
+  const nights = course.unitNoun ? nightState(store, course) : null;
+  const [showEarlier, setShowEarlier] = useState(false);
+  const curUnit = nights?.current ? nights.current.n - 1 : course.units.length - 1;
+  const firstShown = !nights || showEarlier ? 0 : Math.max(0, curUnit - 2);
+  const lastShown = nights ? curUnit + 7 : course.units.length - 1;
   const toggle = id => setOpen(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const startNext = () => { const l = nextLesson(store, course); if (l) onStartLesson(course, l); };
   const after = (lesson) => { const ls = allLessons(course); return ls[ls.findIndex(l => l.id === lesson.id) + 1]; };
@@ -197,8 +249,8 @@ function CoursePage({ course, store, wpm, onBack, onStartLesson, openLessonId, c
         <div style={{ fontSize: 10, color: '#6a5fb0', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6 }}>{SRC_LABEL[course.source]}</div>
         <div style={{ fontSize: 20, color: '#ece8ff', lineHeight: 1.25, marginBottom: 4 }}>{course.title}</div>
         <div style={{ fontSize: 12, color: '#6a6090', marginBottom: 14, lineHeight: 1.5 }}>{course.subtitle}</div>
-        <Bar v={total ? done / total : 0} />
-        <div style={{ fontSize: 11, color: '#6a6090', margin: '6px 0 14px' }}>{done} of {total} lessons complete</div>
+        <Bar v={nights ? nights.completed / course.units.length : total ? done / total : 0} />
+        <div style={{ fontSize: 11, color: '#6a6090', margin: '6px 0 14px' }}>{nights ? `${nights.completed} of ${course.units.length.toLocaleString()} nights complete${nights.streak ? ` · ${nights.streak}-night streak` : ''}` : `${done} of ${total} lessons complete`}</div>
         {nl ? (
           <button style={{ ...btnP, width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', textAlign: 'left' }} onClick={startNext}>
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{done || lessonStatus(store, course.id, nl) !== 'new' ? 'Continue' : 'Start'} · {nl.title}</span><span>›</span>
@@ -212,8 +264,10 @@ function CoursePage({ course, store, wpm, onBack, onStartLesson, openLessonId, c
         </div>
       )}
 
+      {firstShown > 0 && <button style={{ ...pill, marginBottom: 10 }} onClick={() => setShowEarlier(true)}>Show {firstShown} earlier {course.unitNoun}s</button>}
       <div style={card}>
         {course.units.map((u, ui) => {
+          if (ui < firstShown || ui > lastShown) return null;
           const lessons = filter === 'all' ? u.lessons : u.lessons.filter(l => l.tags?.includes(filter));
           if (!lessons.length) return null;
           const d = lessons.filter(l => lessonStatus(store, course.id, l) === 'done').length;
@@ -221,7 +275,7 @@ function CoursePage({ course, store, wpm, onBack, onStartLesson, openLessonId, c
           return (
             <div key={u.id} style={{ borderBottom: ui < course.units.length - 1 ? '1px solid #161616' : 'none' }}>
               <div onClick={() => toggle(u.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', cursor: 'pointer' }}>
-                <div style={{ fontFamily: mono, fontSize: 13, color: d === lessons.length ? C.acc2 : '#444', width: 22 }}>{u.tag}</div>
+                <div style={{ fontFamily: mono, fontSize: 13, color: d === lessons.length ? C.acc2 : '#444', minWidth: 22 }}>{u.tag}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, color: C.txt }}>{u.title}</div>
                   {!isOpen && u.subtitle && <div style={{ fontSize: 12, color: C.dim, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.subtitle}</div>}
@@ -246,6 +300,8 @@ function CoursePage({ course, store, wpm, onBack, onStartLesson, openLessonId, c
           );
         })}
       </div>
+
+      {nights && lastShown < course.units.length - 1 && <div style={{ fontSize: 11, color: '#444', textAlign: 'center', margin: '-4px 0 12px' }}>Later nights unlock as you go · {course.units.length - lastShown - 1} more</div>}
 
       {course.upcoming?.length > 0 && <>
         <div style={label}>Coming to this library</div>
@@ -289,7 +345,8 @@ export default function LearnTab({ wpm, view, setView, session, onResume, onStar
       openLessonId={view.lessonId} clearOpenLesson={() => setView({ courseId: view.courseId })} />;
   }
 
-  const recent = courses[store.recent] || null;
+  const recent = store.recent === 'bradbury' ? null : courses[store.recent] || null;
+  const bb = courses.bradbury;
   const recentNext = recent && nextLesson(store, recent);
   return (
     <div style={{ paddingBottom: 12 }}>
@@ -303,6 +360,9 @@ export default function LearnTab({ wpm, view, setView, session, onResume, onStar
           <div style={{ color: C.acc2, fontSize: 13 }}>Resume ›</div>
         </div>
       )}
+
+      {bb ? <NightsCard course={bb} store={store} wpm={wpm} onStartLesson={onStartLesson} onOpen={() => setView({ courseId: 'bradbury' })} />
+        : <div style={{ ...card, padding: 18, background: '#0f0e1a', borderColor: '#2a2040', fontSize: 13, color: errs.bradbury ? '#7a3a3a' : '#4a4270', animation: errs.bradbury ? 'none' : 'pulse 1.4s infinite' }}>{errs.bradbury || 'Setting up 1,000 Nights…'}</div>}
 
       {recent && recentNext && !session && (
         <div style={{ ...card, padding: 18, background: '#0f0e1a', borderColor: '#2a2040' }}>
@@ -321,7 +381,7 @@ export default function LearnTab({ wpm, view, setView, session, onResume, onStar
       <div style={card}>
         {list.map((c, i) => {
           const full = courses[c.id];
-          const cnt = full ? courseCounts(store, full) : null;
+          const cnt = full ? (full.unitNoun ? (() => { const ns = nightState(store, full); return { done: ns.completed, total: full.units.length, noun: 'nights' }; })() : courseCounts(store, full)) : null;
           return (
             <div key={c.id} onClick={() => setView({ courseId: c.id })} style={{ padding: '14px 16px', borderBottom: i < list.length - 1 ? '1px solid #161616' : 'none', cursor: 'pointer' }}>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 3 }}>
@@ -329,7 +389,7 @@ export default function LearnTab({ wpm, view, setView, session, onResume, onStar
                 <div style={{ fontSize: 10, color: '#555', letterSpacing: 1, textTransform: 'uppercase', flexShrink: 0 }}>{SRC_LABEL[c.source]}</div>
               </div>
               <div style={{ fontSize: 12, color: C.dim, marginBottom: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.subtitle}</div>
-              {cnt ? <><Bar v={cnt.total ? cnt.done / cnt.total : 0} /><div style={{ fontSize: 11, color: '#444', marginTop: 5 }}>{cnt.done}/{cnt.total} lessons</div></>
+              {cnt ? <><Bar v={cnt.total ? cnt.done / cnt.total : 0} /><div style={{ fontSize: 11, color: '#444', marginTop: 5 }}>{cnt.done}/{cnt.total} {cnt.noun || 'lessons'}</div></>
                 : <div style={{ fontSize: 11, color: errs[c.id] ? '#7a3a3a' : '#333' }}>{errs[c.id] || 'Loading…'}</div>}
             </div>
           );

@@ -7,6 +7,7 @@
 // Adapters: 'wyandanch' (built in), 'github' (any markdown repo), 'ai' (Claude-generated).
 
 import { parseDoc } from './md.jsx';
+import { BRADBURY_STUB, bradburyCourse, bradburyDoc } from './bradbury.js';
 
 const STORE_KEY = 'speedr_learn_v1';
 const DOC_PREFIX = 'speedr_learn_doc_';
@@ -297,10 +298,11 @@ export async function buildAiCourse({ topic, level, size }) {
 // Dispatch
 // =====================================================================
 export function listCourses(store) {
-  return [WYANDANCH_STUB, ...Object.values(store.courses || {}).sort((a, b) => (b.created || 0) - (a.created || 0))];
+  return [BRADBURY_STUB, WYANDANCH_STUB, ...Object.values(store.courses || {}).sort((a, b) => (b.created || 0) - (a.created || 0))];
 }
 export async function loadCourse(id) {
   if (id === 'wyandanch') return wlCourse();
+  if (id === 'bradbury') return bradburyCourse();
   const c = getStore().courses?.[id];
   if (!c) throw new Error('Course not found');
   return c;
@@ -312,6 +314,7 @@ export function deleteCourse(id) {
 }
 
 export async function loadLessonDoc(course, lesson) {
+  if (course.source === 'bradbury') return bradburyDoc(lesson);
   if (course.source === 'wyandanch') {
     return toDoc(await fetchMd(`${WL_RAW}/content/level-${lesson.level}/${lesson.id}.mdx`, 'wl_' + lesson.id));
   }
@@ -344,6 +347,7 @@ export function sourceUrl(course, lesson, partTitle) {
     return !partTitle || partTitle === 'Introduction' ? base : `${base}#:~:text=${encodeURIComponent(partTitle).replace(/-/g, '%2D')}`;
   }
   if (course.source === 'github') return `https://github.com/${course.repo}/blob/${course.branch}/${lesson.path}`;
+  if (course.source === 'bradbury') return lesson.src || null;
   return null;
 }
 export function linkBase(course) { return course.source === 'wyandanch' ? WL_SITE : course.source === 'github' ? `https://github.com/${course.repo}/blob/${course.branch}` : null; }
