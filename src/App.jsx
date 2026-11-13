@@ -100,13 +100,24 @@ const ALL_FEEDS = [
   { id:'economist',     name:'The Economist',      url:'https://www.economist.com/feeds/print-sections/all-sections.xml', category:'Premium' },
 ];
 
+// Feeds audited 2026-11-13: the feed itself is dead, or no fetch method returns the article body.
+// They start switched off (one-time prune below); the user can still turn them back on in Sources.
+const BROKEN_FEEDS = {
+  aljazeera:'feed gone (404)', bloomberg:'feed gone (404)', barrons:'feed blocked (403)', economist:'feed blocked (403)',
+  ew:'feed blocked (403)', webmd:'feed unreachable',
+  'gnews-us':'no full text', 'skynews-world':'no full text', thehill:'no full text', 'telegraph-biz':'no full text',
+  'science-mag':'no full text', wsj:'paywalled — no full text', nyt:'paywalled — no full text', ft:'paywalled — no full text',
+  'verge-tech':'no full text',
+};
+const FEEDS_PRUNE_KEY = 'speedr_feeds_prune_v1';
+
 const CATEGORIES = ['All','Digg AI','GitHub','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack','Premium','Custom'];
 const SUPABASE_RSS  = 'https://reojrvyczjrdaobgnrod.supabase.co/functions/v1/rss';
 const SUPABASE_URL  = 'https://reojrvyczjrdaobgnrod.supabase.co';
 const SUPABASE_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJlb2pydnljempyZGFvYmducm9kIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MzAyODQsImV4cCI6MjA5NDAwNjI4NH0.RziEy75n6MS6SNl_nUqLOVRSG19TNEta9AvzrT0BB14';
 const ALLORIGINS   = 'https://api.allorigins.win/get?url=';
 const RSS2JSON     = 'https://api.rss2json.com/v1/api.json?rss_url=';
-const DEFAULT_ENABLED = ALL_FEEDS.map(f => f.id);
+const DEFAULT_ENABLED = ALL_FEEDS.map(f => f.id).filter(id => !BROKEN_FEEDS[id]);
 const CACHE_KEY    = 'speedr_feed_cache';
 const CACHE_TS_KEY = 'speedr_feed_ts';
 const CACHE_TTL    = 30 * 60 * 1000;
@@ -690,11 +701,14 @@ async function resolveDiggSource(diggUrl) {
   } catch { return null; }
 }
 
-async function fetchText(url) {
+async function fetchText(url, signal) {
   let best = '';
+  const started = Date.now();
   const good = t => t && wordCount(t) >= 200 && !PAYWALL_PHRASES.some(p => t.toLowerCase().includes(p));
   // Jina (JS-rendered) → AllOrigins (fast) → archive.ph → Supabase edge fn (Googlebot UA)
   for (const [label, fn] of [['Jina', fetchViaJina], ['AllOrigins', fetchViaAllOrigins], ['archive.ph', fetchViaArchivePh], ['Supabase', fetchViaSupabaseArticle]]) {
+    if (signal?.aborted) throw new Error('cancelled');
+    if (Date.now() - started > 25000) break; // overall cap — don't leave the reader on 'loading' for ~50s
     try {
       const t = await fn(url);
       if (t && wordCount(t) > wordCount(best)) best = t;
@@ -970,9 +984,20 @@ export default function App() {
   const [feedStatuses, setFeedStatuses] = useState({});
   const [showSources, setShowSources] = useState(false);
   const [prevNewsScroll, setPrevNewsScroll] = useState(0);
+  const [fromNews, setFromNews] = useState(false);
+  const fetchCtl = useRef(null); // AbortController for the in-flight article fetch
   const [customUrl, setCustomUrl] = useState('');
   const [extraFeeds, setExtraFeeds] = useState(() => { try { return JSON.parse(localStorage.getItem('speedr_custom')||'[]'); } catch { return []; } });
-  const [enabledFeeds, setEnabledFeeds] = useState(() => { try { const s = localStorage.getItem('speedr_feeds'); return s ? JSON.parse(s) : DEFAULT_ENABLED; } catch { return DEFAULT_ENABLED; } });
+  const [enabledFeeds, setEnabledFeeds] = useState(() => {
+    let list;
+    try { const s = localStorage.getItem('speedr_feeds'); list = s ? JSON.parse(s) : DEFAULT_ENABLED; } catch { list = DEFAULT_ENABLED; }
+    // One-time: switch off feeds that can't deliver full text (BROKEN_FEEDS). Later re-enables are respected.
+    if (!localStorage.getItem(FEEDS_PRUNE_KEY)) {
+      list = list.filter(id => !BROKEN_FEEDS[id]);
+      try { localStorage.setItem('speedr_feeds', JSON.stringify(list)); localStorage.setItem('speedr_feeds_local_ts', String(Date.now())); localStorage.setItem(FEEDS_PRUNE_KEY, '1'); } catch {}
+    }
+    return list;
+  });
 
   // Library
   const [library, setLibrary] = useState(() => { try { return JSON.parse(localStorage.getItem('speedr_library')||'[]'); } catch { return []; } });
@@ -1215,6 +1240,9 @@ export default function App() {
 
   const handleReadArticle = async item => {
     if (newsScrollRef.current) setPrevNewsScroll(newsScrollRef.current.scrollTop);
+    setFromNews(true); setIsFocused(false); setPlaying(false);
+    fetchCtl.current?.abort();
+    const ctl = new AbortController(); fetchCtl.current = ctl;
     if (activeText) setHistory(h => [{ title: activeTitle, text: activeText }, ...h.slice(0,9)]);
 
     // Fast path: fullContent ready — load instantly, no blank screen
@@ -1252,12 +1280,19 @@ export default function App() {
         return;
       }
       try {
-        const text = await fetchText(item.link);
+        const text = await fetchText(item.link, ctl.signal);
+        if (ctl.signal.aborted) return;
         const ft = text.length > 200 ? text : (item.fullContent || item.title + '. ' + item.description);
         loadText(decodeHtmlEntities(ft), item.title);
         saveArticle(item.title, ft, item.link, item.source);
-      } catch { loadText(decodeHtmlEntities(item.fullContent || item.description || item.title), item.title); }
-    } finally { setFetching(false); }
+      } catch { if (!ctl.signal.aborted) loadText(decodeHtmlEntities(item.fullContent || item.description || item.title), item.title); }
+    } finally { if (fetchCtl.current === ctl) { setFetching(false); fetchCtl.current = null; } }
+  };
+
+  const cancelFetch = () => {
+    fetchCtl.current?.abort(); fetchCtl.current = null;
+    setFetching(false); setIsFocused(false); setPlaying(false);
+    goBackToNews();
   };
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(''), 2000); };
@@ -1315,6 +1350,7 @@ export default function App() {
   };
 
   const goBackToNews = () => {
+    setIsFocused(false); setPlaying(false);
     setTab('news');
     setTimeout(() => { if (newsScrollRef.current) newsScrollRef.current.scrollTop = prevNewsScroll; }, 50);
   };
@@ -1443,7 +1479,7 @@ export default function App() {
         <div onClick={()=>{ if (uiFading) setIsFocused(false); }} className="ls-hide ui-layer" style={{flexShrink:0,display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 20px 10px',borderBottom:'1px solid #141414',opacity:uiFading?0.07:1,transition:'opacity 0.25s ease',pointerEvents:'auto'}}>
           <div style={{display:'flex',alignItems:'center',gap:10}}>
             {/* Back button when came from news */}
-            {tab==='reader' && activeTitle && prevNewsScroll > 0 && (
+            {tab==='reader' && fromNews && (
               <button onClick={goBackToNews} style={{background:'none',border:'none',color:'#8b7fff',cursor:'pointer',fontSize:20,padding:'0 4px 0 0',lineHeight:1}}>{'<'}</button>
             )}
             <div style={{display:'flex', alignItems:'baseline', gap:0}}>
@@ -1512,6 +1548,14 @@ export default function App() {
                 className={landscape ? 'ls-reader' : ''}
                 style={{...card,flex:1,minHeight:landscape?0:180,cursor:'pointer',touchAction:'none',display:'flex',flexDirection:'column',marginBottom:0,position:'relative'}}
               >
+                {/* Landscape hides the top bar and tab bar, so the stage needs its own way out */}
+                {landscape && (
+                  <div style={{position:'absolute',top:'max(10px, env(safe-area-inset-top))',left:'max(12px, env(safe-area-inset-left))',zIndex:30,display:'flex',gap:8,opacity:playing?0.15:0.9,transition:'opacity 0.25s ease'}}>
+                    <button onClick={e=>{e.stopPropagation(); if (fetching) cancelFetch(); else if (fromNews) goBackToNews(); else { setPlaying(false); setIsFocused(false); setTab('library'); }}}
+                      style={{...pill,background:'rgba(17,17,17,0.85)',color:'#c0c0c0',borderColor:'#2a2a2a'}}>{fromNews ? '< news' : '< back'}</button>
+                  </div>
+                )}
+
                 {/* Seek / hold zones — only active while there's text and we're not on the finished screen */}
                 {chunks.length > 0 && !done && (<>
                   {/* LEFT ZONE — rewind */}
@@ -1542,7 +1586,10 @@ export default function App() {
 
                 <div ref={wordRef} style={{flex:1,display:'flex',alignItems:'center',justifyContent:'center',padding:'0 24px',position:'relative'}}>
                   {fetching ? (
-                    <div style={{color:'#333',fontSize:14,animation:'pulse 1.4s infinite'}}>loading...</div>
+                    <div style={{textAlign:'center',display:'flex',flexDirection:'column',gap:14,alignItems:'center',position:'relative',zIndex:20}}>
+                      <div style={{color:'#8b7fff',fontSize:14,animation:'pulse 1.4s infinite'}}>fetching article…</div>
+                      <button onClick={e=>{e.stopPropagation();cancelFetch();}} style={{...btnGhost,padding:'8px 20px',fontSize:13}}>Cancel</button>
+                    </div>
                   ) : !chunks.length ? (
                     <div style={{textAlign:'center'}}>
                       <div style={{color:'#2a2a2a',fontSize:15,marginBottom:6}}>load text above</div>
@@ -1564,8 +1611,8 @@ export default function App() {
                     </div>
                   ) : idx===0 && !playing ? (
                     <div style={{textAlign:'center'}}>
-                      <div style={{color:'#2a2a2a',fontSize:15,marginBottom:4}}>hold to read</div>
-                      <div style={{color:'#1a1a1a',fontSize:11}}>tap left/right to skip</div>
+                      <div style={{color:'#555',fontSize:15,marginBottom:4}}>hold to read</div>
+                      <div style={{color:'#333',fontSize:11}}>tap left/right to skip</div>
                     </div>
                   ) : (
                     <div className="ls-words" style={{width:'100%'}}>
@@ -1682,7 +1729,7 @@ export default function App() {
                           style={{padding:'12px 16px',display:'flex',alignItems:'center',gap:12,cursor:'pointer',borderBottom:i<catFeeds.length-1?'1px solid #0f0f0f':'none'}}>
                           <div style={{flex:1}}>
                             <div style={{fontSize:14,color:on?'#e0e0e0':'#555',fontWeight:400,transition:'color 0.15s'}}>{f.name}</div>
-                            <div style={{fontSize:11,marginTop:2,color:st==='ok'?'#50d89a':st==='fail'?'#e05252':'#333'}}>{st==='ok'?'working':st==='fail'?'failed':'not tested'}</div>
+                            <div style={{fontSize:11,marginTop:2,color:BROKEN_FEEDS[f.id]?'#c08a3a':st==='ok'?'#50d89a':st==='fail'?'#e05252':'#333'}}>{BROKEN_FEEDS[f.id] ? BROKEN_FEEDS[f.id] : st==='ok'?'working':st==='fail'?'failed':'not tested'}</div>
                           </div>
                           <Toggle on={on} onChange={()=>toggleFeed(f.id)}/>
                         </div>
@@ -1715,7 +1762,7 @@ export default function App() {
                 <div style={{fontSize:10,color:'#c0c0c0',fontWeight:500,textTransform:'uppercase',letterSpacing:1.5,padding:'0 4px 8px'}}>Getting Started</div>
                 <div style={{background:'#0f0e1a',borderRadius:16,border:'1px solid #2a2040',overflow:'hidden',marginBottom:12}}>
                   {PINNED_ARTICLES.map((a,i) => (
-                    <div key={a.id} onClick={()=>{ loadText(a.text, a.title); setActiveArticleUrl(''); setTab('reader'); }} style={{padding:'14px 16px',borderBottom:i<PINNED_ARTICLES.length-1?'1px solid #1a1830':'none',display:'flex',gap:12,alignItems:'center',cursor:'pointer'}}>
+                    <div key={a.id} onClick={()=>{ loadText(a.text, a.title); setActiveArticleUrl(''); setFromNews(false); setTab('reader'); }} style={{padding:'14px 16px',borderBottom:i<PINNED_ARTICLES.length-1?'1px solid #1a1830':'none',display:'flex',gap:12,alignItems:'center',cursor:'pointer'}}>
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:14,color:'#c0b8ff',fontWeight:400,lineHeight:1.4}}>{a.title}</div>
                         <div style={{fontSize:11,color:'#4a4060',marginTop:3}}>{a.word_count} words · Speedr Guide</div>
