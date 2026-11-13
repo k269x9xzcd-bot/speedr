@@ -1,3 +1,4 @@
+import { lsSet as safeSet } from '../storage.js';
 // "1,000 Nights" — Ray Bradbury's program: every night, one poem, one short story and one essay,
 // drawn from different eras and fields. Texts live in Supabase (public.bradbury_items, public domain).
 // The schedule is generated once from the catalog with a fixed seed and saved, so Night N never changes.
@@ -12,7 +13,7 @@ export const KIND_LABEL = { poem: 'Poem', story: 'Story', essay: 'Essay' };
 const PART_WORDS = 1500; // long stories/essays are split into parts of about this size
 
 function lsGet(k, fb) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } }
-function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } }
+function lsSet(k, v) { return safeSet(k, JSON.stringify(v)); }
 
 async function rest(path) {
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: { apikey: SB_ANON, Authorization: `Bearer ${SB_ANON}` } });

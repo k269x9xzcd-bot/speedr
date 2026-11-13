@@ -1,3 +1,4 @@
+import { lsSet as safeSet } from '../storage.js';
 // Course model + source adapters + progress store for the Learn tab.
 //
 // Every course, whatever its source, has the same shape:
@@ -17,7 +18,7 @@ export const PASS = 0.7;
 
 // ---------- storage ----------
 function lsGet(k, fb) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; } catch { return fb; } }
-function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } }
+function lsSet(k, v) { return safeSet(k, JSON.stringify(v)); }
 
 export function getStore() {
   const s = lsGet(STORE_KEY, null);

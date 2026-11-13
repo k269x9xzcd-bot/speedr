@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import TrainTab from './TrainTab';
+import { lsSet, saveLibrary } from './storage.js';
 import LearnTab from './learn/LearnTab';
 import { LessonHeader, LessonEnd, LessonSheets } from './learn/LessonPlayer';
 import { loadLessonDoc, markPart, touchLesson, resumePart, sourceUrl, getStore } from './learn/courses.js';
@@ -304,7 +305,7 @@ function useSetting(key) {
     try { const s = localStorage.getItem('speedr_' + key); return s !== null ? JSON.parse(s) : DEFAULT_SETTINGS[key]; }
     catch { return DEFAULT_SETTINGS[key]; }
   });
-  const set = useCallback(v => { setVal(v); localStorage.setItem('speedr_' + key, JSON.stringify(v)); }, [key]);
+  const set = useCallback(v => { setVal(v); lsSet('speedr_' + key, JSON.stringify(v)); }, [key]);
   return [val, set];
 }
 
@@ -842,8 +843,8 @@ async function getOrCreateAnonToken() {
     const token = data.access_token;
     const exp = data.expires_at ? data.expires_at * 1000 : Date.now() + 3600000;
     if (token) {
-      localStorage.setItem('speedr_anon_token', token);
-      localStorage.setItem('speedr_anon_expiry', String(exp));
+      lsSet('speedr_anon_token', token);
+      lsSet('speedr_anon_expiry', String(exp));
     }
     return token || null;
   } catch { return null; }
@@ -997,12 +998,12 @@ export default function App() {
     // One-time: switch off feeds that can't deliver full text (BROKEN_FEEDS). Later re-enables are respected.
     if (!localStorage.getItem(FEEDS_PRUNE_KEY)) {
       list = list.filter(id => !BROKEN_FEEDS[id]);
-      try { localStorage.setItem('speedr_feeds', JSON.stringify(list)); localStorage.setItem('speedr_feeds_local_ts', String(Date.now())); localStorage.setItem(FEEDS_PRUNE_KEY, '1'); } catch {}
+      try { lsSet('speedr_feeds', JSON.stringify(list)); lsSet('speedr_feeds_local_ts', String(Date.now())); lsSet(FEEDS_PRUNE_KEY, '1'); } catch {}
     }
     for (const [key, ids] of Object.entries(FEEDS_ADDED)) {
       if (localStorage.getItem(key)) continue;
       list = [...list, ...ids.filter(id => !list.includes(id))];
-      try { localStorage.setItem('speedr_feeds', JSON.stringify(list)); localStorage.setItem('speedr_feeds_local_ts', String(Date.now())); localStorage.setItem(key, '1'); } catch {}
+      try { lsSet('speedr_feeds', JSON.stringify(list)); lsSet('speedr_feeds_local_ts', String(Date.now())); lsSet(key, '1'); } catch {}
     }
     return list;
   });
@@ -1084,7 +1085,7 @@ export default function App() {
       }
       if (!cancelled) {
         setExtraFeeds(merged);
-        localStorage.setItem('speedr_custom', JSON.stringify(merged));
+        lsSet('speedr_custom', JSON.stringify(merged));
 
         // Re-key enabledFeeds: replace local temp ids ('custom_*') with the canonical remote uuid for the same url.
         const localToRemote = new Map();
@@ -1100,7 +1101,7 @@ export default function App() {
           if (remoteTs >= localTs) nextEnabled = remote.enabled;
         }
         setEnabledFeeds(nextEnabled);
-        localStorage.setItem('speedr_feeds', JSON.stringify(nextEnabled));
+        lsSet('speedr_feeds', JSON.stringify(nextEnabled));
       }
     })();
     return () => { cancelled = true; };
@@ -1116,7 +1117,7 @@ export default function App() {
   }, [chunkSize]);
 
   const finishOnboarding = () => {
-    localStorage.setItem('speedr_onboarded', '1');
+    lsSet('speedr_onboarded', '1');
     setShowOnboarding(false);
     const article = PINNED_ARTICLES[0];
     loadText(article.text, article.title);
@@ -1177,7 +1178,7 @@ export default function App() {
         setTab('reader');
         // Dismiss onboarding if showing
         if (localStorage.getItem('speedr_onboarded') !== '1') {
-          localStorage.setItem('speedr_onboarded', '1');
+          lsSet('speedr_onboarded', '1');
           setShowOnboarding(false);
         }
         // Immersion mode: fade the chrome, show only the word on black
@@ -1203,7 +1204,7 @@ export default function App() {
     return null;
   };
   const saveToCache = items => {
-    try { localStorage.setItem(CACHE_KEY, JSON.stringify(items)); localStorage.setItem(CACHE_TS_KEY, String(Date.now())); } catch {}
+    try { lsSet(CACHE_KEY, JSON.stringify(items)); lsSet(CACHE_TS_KEY, String(Date.now())); } catch {}
   };
 
   const loadFeeds = useCallback(async (feeds, force = false) => {
@@ -1309,13 +1310,13 @@ export default function App() {
     if (!text || text.length < 50) return;
     const id = 'local_' + Date.now();
     const article = { id, title: title||'Untitled', text, url:url||'', source:source||'', word_count:text.trim().split(/\s+/).filter(Boolean).length, saved_at:new Date().toISOString() };
-    setLibrary(prev => { const deduped=prev.filter(a=>a.title!==article.title); const next=[article,...deduped].slice(0,300); localStorage.setItem('speedr_library',JSON.stringify(next)); return next; });
+    setLibrary(prev => { const deduped=prev.filter(a=>a.title!==article.title); return saveLibrary([article,...deduped].slice(0,300)); });
     showToast('Saved to Library');
     saveArticleRemote(article.title, text, url, source).catch(()=>{});
   };
 
   const deleteArticle = (id) => {
-    setLibrary(prev => { const next=prev.filter(a=>a.id!==id); localStorage.setItem('speedr_library',JSON.stringify(next)); return next; });
+    setLibrary(prev => { return saveLibrary(prev.filter(a=>a.id!==id)); });
     if (!id.startsWith('local_')) deleteArticleRemote(id).catch(()=>{});
   };
 
@@ -1331,7 +1332,7 @@ export default function App() {
         const remoteIds = new Set(remote.map(r=>r.id));
         const localOnly = local.filter(a=>a.id.startsWith('local_')&&!remoteIds.has(a.id));
         const all = [...merged,...localOnly].sort((a,b)=>new Date(b.saved_at)-new Date(a.saved_at));
-        setLibrary(all); localStorage.setItem('speedr_library',JSON.stringify(all));
+        setLibrary(saveLibrary(all));
       }
     } catch {} finally { setLibLoading(false); }
   };
@@ -1344,9 +1345,7 @@ export default function App() {
       text = art && art.text;
       if (text) {
         setLibrary(prev => {
-          const next = prev.map(x => x.id === a.id ? { ...x, text } : x);
-          localStorage.setItem('speedr_library', JSON.stringify(next));
-          return next;
+          return saveLibrary(prev.map(x => x.id === a.id ? { ...x, text } : x));
         });
       }
     }
@@ -1365,8 +1364,8 @@ export default function App() {
 
   const toggleFeed = id => {
     const u = enabledFeeds.includes(id) ? enabledFeeds.filter(f=>f!==id) : [...enabledFeeds, id];
-    setEnabledFeeds(u); localStorage.setItem('speedr_feeds', JSON.stringify(u));
-    localStorage.setItem('speedr_feeds_local_ts', String(Date.now()));
+    setEnabledFeeds(u); lsSet('speedr_feeds', JSON.stringify(u));
+    lsSet('speedr_feeds_local_ts', String(Date.now()));
     if (prefsPushTimer.current) clearTimeout(prefsPushTimer.current);
     prefsPushTimer.current = setTimeout(() => pushFeedPrefsRemote(u), 500);
   };
@@ -1378,8 +1377,8 @@ export default function App() {
     const tempId = 'custom_' + Date.now();
     const feed = { id: tempId, name, url: u, category: 'Custom' };
     const updated = [...extraFeeds, feed];
-    setExtraFeeds(updated); localStorage.setItem('speedr_custom', JSON.stringify(updated));
-    setEnabledFeeds(p => { const n=[...p, tempId]; localStorage.setItem('speedr_feeds', JSON.stringify(n)); localStorage.setItem('speedr_feeds_local_ts', String(Date.now())); return n; });
+    setExtraFeeds(updated); lsSet('speedr_custom', JSON.stringify(updated));
+    setEnabledFeeds(p => { const n=[...p, tempId]; lsSet('speedr_feeds', JSON.stringify(n)); lsSet('speedr_feeds_local_ts', String(Date.now())); return n; });
     setCustomUrl('');
 
     // Push to Supabase; on success, swap temp id for canonical uuid in both lists.
@@ -1387,12 +1386,12 @@ export default function App() {
     if (remote && remote.id !== tempId) {
       setExtraFeeds(prev => {
         const next = prev.map(f => f.id === tempId ? { ...f, id: remote.id } : f);
-        localStorage.setItem('speedr_custom', JSON.stringify(next));
+        lsSet('speedr_custom', JSON.stringify(next));
         return next;
       });
       setEnabledFeeds(prev => {
         const next = prev.map(id => id === tempId ? remote.id : id);
-        localStorage.setItem('speedr_feeds', JSON.stringify(next));
+        lsSet('speedr_feeds', JSON.stringify(next));
         return next;
       });
       pushFeedPrefsRemote(enabledFeeds.includes(tempId) ? enabledFeeds.map(id => id === tempId ? remote.id : id) : [...enabledFeeds, remote.id]);
@@ -1402,13 +1401,13 @@ export default function App() {
   const removeCustomFeed = (id) => {
     setExtraFeeds(prev => {
       const next = prev.filter(f => f.id !== id);
-      localStorage.setItem('speedr_custom', JSON.stringify(next));
+      lsSet('speedr_custom', JSON.stringify(next));
       return next;
     });
     setEnabledFeeds(prev => {
       const next = prev.filter(x => x !== id);
-      localStorage.setItem('speedr_feeds', JSON.stringify(next));
-      localStorage.setItem('speedr_feeds_local_ts', String(Date.now()));
+      lsSet('speedr_feeds', JSON.stringify(next));
+      lsSet('speedr_feeds_local_ts', String(Date.now()));
       pushFeedPrefsRemote(next);
       return next;
     });

@@ -1,6 +1,9 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
+import { repairStorage } from './storage.js'
+
+repairStorage()
 
 // Last line of defence: a render error would otherwise unmount everything and leave a black screen.
 class ErrorBoundary extends React.Component {

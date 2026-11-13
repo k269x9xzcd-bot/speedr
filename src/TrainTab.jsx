@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { lsSet } from './storage.js';
 
 const STORAGE_KEY = 'speedr_train';
 const TRACK_KEY = 'speedr_train_track';
@@ -24,7 +25,7 @@ function addSeenPassage(id) {
     seen.push(id);
     // Only track wiki passages here; baked passages use a timestamp map
     const wiki = seen.filter(s => !s.startsWith('baked:'));
-    localStorage.setItem(SEEN_KEY, JSON.stringify(wiki.slice(-SEEN_WIKI_MAX)));
+    lsSet(SEEN_KEY, JSON.stringify(wiki.slice(-SEEN_WIKI_MAX)));
   } catch {}
 }
 
@@ -33,7 +34,7 @@ function getBakedSeen() {
   try { return JSON.parse(localStorage.getItem(BAKED_SEEN_KEY) || '{}'); } catch { return {}; }
 }
 function markBakedSeen(id) {
-  try { const m = getBakedSeen(); m[id] = Date.now(); localStorage.setItem(BAKED_SEEN_KEY, JSON.stringify(m)); } catch {}
+  try { const m = getBakedSeen(); m[id] = Date.now(); lsSet(BAKED_SEEN_KEY, JSON.stringify(m)); } catch {}
 }
 function isBakedRecent(id) {
   const m = getBakedSeen(); const ts = m[id];
@@ -169,8 +170,8 @@ async function getAnonToken() {
     const token = data.access_token;
     const exp = data.expires_at ? data.expires_at * 1000 : Date.now() + 3600000;
     if (token) {
-      localStorage.setItem('speedr_anon_token', token);
-      localStorage.setItem('speedr_anon_expiry', String(exp));
+      lsSet('speedr_anon_token', token);
+      lsSet('speedr_anon_expiry', String(exp));
     }
     return token || null;
   } catch { return null; }
@@ -230,7 +231,7 @@ function getUserId() {
   if (!id) {
     id = 'anon_' + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
   }
-  localStorage.setItem('speedr_uid', id);
+  lsSet('speedr_uid', id);
   setCookie('speedr_uid', id);
   return id;
 }
@@ -305,7 +306,7 @@ function loadState() {
 }
 
 function saveState(s) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch {}
+  try { lsSet(STORAGE_KEY, JSON.stringify(s)); } catch {}
 }
 
 function parseQuestions(text) {
@@ -555,7 +556,7 @@ export default function TrainTab({ readerWpm }) {
     }
   }, []);
 
-  const changeTrack = (t) => { setTrack(t); try { localStorage.setItem(TRACK_KEY, t); } catch {} };
+  const changeTrack = (t) => { setTrack(t); try { lsSet(TRACK_KEY, t); } catch {} };
 
   const patchInProgress = useCallback((patch) => {
     setState(prev => {
