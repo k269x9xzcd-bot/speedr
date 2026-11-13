@@ -51,6 +51,7 @@ const ALL_FEEDS = [
   { id:'tribeca',      name:'Tribeca Citizen',    url:'https://tribecacitizen.com/feed/',                           category:'Local' },
   { id:'moneyprinter', name:'Money Printer',      url:'https://themoneyprinter.substack.com/feed',                  category:'Substack' },
   { id:'charlie',      name:'Charlie Garcia',     url:'https://charliepgarcia.substack.com/feed',                   category:'Substack' },
+  { id:'qtr',          name:"QTR's Fringe Finance", url:'https://quoththeraven.substack.com/feed',                 category:'Substack' },
   { id:'cnet',         name:'CNET',               url:'https://www.cnet.com/rss/news/',                             category:'Tech' },
   { id:'wired',        name:'Wired',              url:'https://www.wired.com/feed/rss',                             category:'Tech' },
   { id:'macrumors',    name:'MacRumors',          url:'https://feeds.macrumors.com/MacRumors-All',                  category:'Tech' },
@@ -110,6 +111,8 @@ const BROKEN_FEEDS = {
   'verge-tech':'no full text',
 };
 const FEEDS_PRUNE_KEY = 'speedr_feeds_prune_v1';
+// Feeds added after launch: switched on once for existing installs (saved enabled lists don't pick up new defaults).
+const FEEDS_ADDED = { speedr_feeds_added_v1: ['qtr'] };
 
 const CATEGORIES = ['All','Digg AI','GitHub','US','World','Politics','Business','Tech','Health','Entertainment','Science','Local','Substack','Premium','Custom'];
 const SUPABASE_RSS  = 'https://reojrvyczjrdaobgnrod.supabase.co/functions/v1/rss';
@@ -995,6 +998,11 @@ export default function App() {
     if (!localStorage.getItem(FEEDS_PRUNE_KEY)) {
       list = list.filter(id => !BROKEN_FEEDS[id]);
       try { localStorage.setItem('speedr_feeds', JSON.stringify(list)); localStorage.setItem('speedr_feeds_local_ts', String(Date.now())); localStorage.setItem(FEEDS_PRUNE_KEY, '1'); } catch {}
+    }
+    for (const [key, ids] of Object.entries(FEEDS_ADDED)) {
+      if (localStorage.getItem(key)) continue;
+      list = [...list, ...ids.filter(id => !list.includes(id))];
+      try { localStorage.setItem('speedr_feeds', JSON.stringify(list)); localStorage.setItem('speedr_feeds_local_ts', String(Date.now())); localStorage.setItem(key, '1'); } catch {}
     }
     return list;
   });
