@@ -1522,6 +1522,7 @@ export default function App() {
                   onCourse={backToCourse}
                   onExit={()=>{ setLearn(null); setLearnSheet(null); setPlaying(false); setIsFocused(false); }}
                   onNotes={()=>{ setPlaying(false); setIsFocused(false); setLearnSheet('notes'); }}
+                  onQuiz={()=>{ setPlaying(false); setIsFocused(false); setLearnSheet('quiz'); }}
                   onJump={i=>{ setPlaying(false); setIsFocused(false); goPart(learn.course, learn.lesson, learn.doc, i); }}/>
               )}
               {/* Input card - fades while playing */}

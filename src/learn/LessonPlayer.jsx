@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { getStore, lessonProgress, lessonAfter, recordQuiz, quizText, sourceUrl, linkBase } from './courses.js';
+import { getStore, lessonProgress, lessonAfter, recordQuiz, quizText, sourceUrl, linkBase, markPart } from './courses.js';
 import { MdView } from './md.jsx';
 import { C, mono, btnP, btnG, Sheet, Quiz, FormulaSheet } from './ui.jsx';
 
 // Replaces the Paste/URL card while a lesson is playing in the Reader.
-export function LessonHeader({ session, className, onCourse, onExit, onNotes, onJump }) {
+export function LessonHeader({ session, className, onCourse, onExit, onNotes, onJump, onQuiz }) {
   const { course, lesson, doc, part } = session;
   const read = lessonProgress(getStore(), course.id, lesson.id).parts || {};
   const hasFx = doc.parts.some(p => p.formulas?.length);
@@ -17,6 +17,8 @@ export function LessonHeader({ session, className, onCourse, onExit, onNotes, on
           <div style={{ fontSize: 13, color: '#ddd', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lesson.title}</div>
         </div>
         <button onClick={onNotes} aria-label="Notes" style={{ background: 'none', border: `1px solid ${hasFx ? '#2a2040' : '#1a1a1a'}`, color: hasFx ? C.acc2 : '#666', borderRadius: 10, fontSize: 12, padding: '5px 9px', cursor: 'pointer', fontFamily: hasFx ? mono : 'inherit' }}>{hasFx ? 'ƒ' : 'Text'}</button>
+        {/* Quiz is always reachable — reading in the Text view or stopping early shouldn't lock you out */}
+        <button onClick={onQuiz} aria-label="Take quiz" style={{ background: C.acc, border: 'none', color: '#fff', borderRadius: 10, fontSize: 12, padding: '6px 10px', cursor: 'pointer' }}>Quiz</button>
         <button onClick={onExit} aria-label="Exit lesson" style={{ background: 'none', border: 'none', color: '#555', fontSize: 20, cursor: 'pointer', padding: '0 0 0 2px', lineHeight: 1 }}>×</button>
       </div>
       <div style={{ display: 'flex', gap: 3 }}>
@@ -94,6 +96,11 @@ export function LessonSheets({ session, sheet, setSheet, onStartPart, onNextLess
           <MdView md={doc.parts[sp].md} linkBase={linkBase(course)} />
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
             {sp !== part && <button style={{ ...btnP, flex: 1 }} onClick={() => { setSheet(null); setSrcPart(null); onStartPart(sp); }}>Read this part</button>}
+            {sp === part && <button style={{ ...btnP, flex: 2 }} onClick={() => {
+              markPart(course.id, lesson.id, part, doc.parts.length);
+              setSrcPart(null);
+              if (part < doc.parts.length - 1) { setSheet(null); onStartPart(part + 1); } else setSheet('quiz');
+            }}>{part < doc.parts.length - 1 ? 'Done reading · next part ›' : 'Done reading · take quiz'}</button>}
             {url && <a href={url} target="_blank" rel="noreferrer" style={{ ...btnG, flex: sp === part ? 1 : 0, textDecoration: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>Source ↗</a>}
           </div>
         </>}
